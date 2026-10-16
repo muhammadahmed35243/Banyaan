@@ -253,8 +253,8 @@ async def _finish(ctx: Ctx, node: Node, result: str, confidence: float) -> str:
     return result
 
 
-async def run_goal(run_id: str, goal: str, session_id: str | None = None) -> str | None:
-    ctx = Ctx(run_id, get_llm(), asyncio.Semaphore(settings.max_parallel_agents), session_id)
+async def run_goal(run_id: str, goal: str, session_id: str | None = None, llm: LLM | None = None) -> str | None:
+    ctx = Ctx(run_id, llm or get_llm(), asyncio.Semaphore(settings.max_parallel_agents), session_id)
     await emit(ctx, "run_started", goal=goal, mock=type(ctx.llm).__name__ == "MockLLM")
     result = await run_node(ctx, f"{run_id}-root", None, goal, 0, plan_first=True)
     await emit(ctx, "run_finished", result=result)

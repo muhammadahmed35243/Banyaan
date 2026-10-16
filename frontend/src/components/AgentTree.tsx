@@ -61,24 +61,44 @@ function AgentCard({ data }: NodeProps<Node<{ agent: AgentNode }>>) {
 
 const nodeTypes = { agent: AgentCard };
 
+/** Each goal's tree is laid out on its own and placed left to right in launch order, so
+ * trees never swap places as they grow (one dagre graph would reshuffle them). */
 function layout(agents: AgentNode[]): { nodes: Node[]; edges: Edge[] } {
-  const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: "TB", nodesep: 30, ranksep: 70 });
-  g.setDefaultEdgeLabel(() => ({}));
-  const ids = new Set(agents.map((a) => a.id));
-  agents.forEach((a) => g.setNode(a.id, { width: W, height: H }));
-  const edges: Edge[] = [];
+  const byId = new Map(agents.map((a) => [a.id, a]));
+  const rootOf = (a: AgentNode): string => {
+    let cur = a;
+    while (cur.parentId && byId.has(cur.parentId)) cur = byId.get(cur.parentId)!;
+    return cur.id;
+  };
+  const groups = new Map<string, AgentNode[]>(); // insertion order = launch order
   agents.forEach((a) => {
-    if (a.parentId && ids.has(a.parentId)) {
-      g.setEdge(a.parentId, a.id);
-      edges.push({ id: `${a.parentId}-${a.id}`, source: a.parentId, target: a.id, animated: true,
-        style: { stroke: "#475569" } });
-    }
+    const r = rootOf(a);
+    groups.set(r, [...(groups.get(r) ?? []), a]);
   });
-  dagre.layout(g);
-  const nodes: Node[] = agents.map((a) => {
-    const p = g.node(a.id);
-    return { id: a.id, type: "agent", position: { x: p.x - W / 2, y: p.y - H / 2 }, data: { agent: a } };
+
+  const nodes: Node[] = [];
+  const edges: Edge[] = [];
+  let offsetX = 0;
+  groups.forEach((members) => {
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: "TB", nodesep: 30, ranksep: 70 });
+    g.setDefaultEdgeLabel(() => ({}));
+    members.forEach((a) => g.setNode(a.id, { width: W, height: H }));
+    members.forEach((a) => {
+      if (a.parentId && byId.has(a.parentId)) {
+        g.setEdge(a.parentId, a.id);
+        edges.push({ id: `${a.parentId}-${a.id}`, source: a.parentId, target: a.id, animated: true,
+          style: { stroke: "#475569" } });
+      }
+    });
+    dagre.layout(g);
+    let maxX = 0;
+    members.forEach((a) => {
+      const p = g.node(a.id);
+      maxX = Math.max(maxX, p.x + W / 2);
+      nodes.push({ id: a.id, type: "agent", position: { x: offsetX + p.x - W / 2, y: p.y - H / 2 }, data: { agent: a } });
+    });
+    offsetX += maxX + 90;
   });
   return { nodes, edges };
 }
@@ -93,6 +113,20 @@ function Tree() {
     const t = setTimeout(() => fitView({ padding: 0.3, duration: 400 }), 50);
     return () => clearTimeout(t);
   }, [count, fitView]);
+  if (count === 0) {
+    return (
+      <div className="grid h-full place-items-center text-center">
+        <div>
+          <div className="text-5xl">🌳</div>
+          <p className="mt-3 text-sm text-slate-300">Give Banyan a goal, or press <b>▶ Demo</b>.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Try: “Any time I get an email about a payment, tell me” · “Compare MacBook Air prices at 3 stores”
+          </p>
+          <p className="mt-1 text-xs text-slate-500">Click 🎙 to talk to it. Every new tool, secret and risky action waits for you.</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.3 }}
       onNodeClick={(_, n) => useBanyan.getState().select(n.id)}

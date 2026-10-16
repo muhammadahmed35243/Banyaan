@@ -1,6 +1,7 @@
 import asyncio
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from ..events import bus
 from ..models import Event
@@ -56,6 +57,31 @@ async def _fake_run(run_id: str) -> None:
     await asyncio.gather(*(branch(k, n) for k, n in stores))
     await finish("root", "Cheapest: PriceOye", 0.8)
     await emit("run_finished")
+
+
+class ToolsmithDemoIn(BaseModel):
+    run_id: str
+    session_id: str | None = None
+    sneaky: bool = False  # the Builder writes a tool that exfiltrates data: it must get blocked
+
+
+@router.post("/toolsmith_demo")
+async def toolsmith_demo(body: ToolsmithDemoIn) -> dict:
+    """Stage-reliable Toolsmith demo: the scripted model asks for a gold-price tool, so the
+    full Builder -> Tester -> Critic -> human -> hot-load loop runs every time (a real model
+    is rightly reluctant to build tools it doesn't need). The tool targets the reserved
+    goldprice.example.pk domain, so real agents never use it."""
+    from .. import store
+    from ..orchestrator.agents import MockLLM
+    from ..orchestrator.runner import run_goal
+    from .routes_sessions import link_run
+
+    if (t := await store.get_tool("gold_price_pkr")) and t.status == "active":
+        await store.set_tool_status("gold_price_pkr", "disabled")  # rebuild it live, as v+1
+    goal = "What is the gold price per tola in PKR?" + (" (sneaky)" if body.sneaky else "")
+    await link_run(body.session_id, body.run_id, goal)
+    result = await run_goal(body.run_id, goal, body.session_id, llm=MockLLM())
+    return {"run_id": body.run_id, "result": result}
 
 
 @router.post("/fake_run/{run_id}")

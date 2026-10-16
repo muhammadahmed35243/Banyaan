@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ApprovalInbox from "@/components/ApprovalInbox";
 import NodeDetails from "@/components/NodeDetails";
@@ -15,7 +15,8 @@ import { useBanyan } from "@/store/useBanyan";
 function MissionControl() {
   const router = useRouter();
   const sessionId = useSearchParams().get("session");
-  const [view, setView] = useState<"tree" | "map" | "timeline">("tree");
+  const view = useBanyan((s) => s.view);
+  const setView = useBanyan((s) => s.setView);
 
   // The session id lives in the URL: every goal typed here joins it and runs side by side,
   // and a refresh replays the whole session from stored events.

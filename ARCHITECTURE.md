@@ -82,6 +82,32 @@ The centre panel switches between three views, all derived from the same event s
   tool calls and 🔔 for alerts. Overlapping bars show parallelism ("up to N at once").
   Filters: human moments only, last 2 minutes.
 
+## 1e. Voice
+
+- **Talk to it:** click 🎙 (Chrome) and say a goal ("Banyan, compare gold prices in Lahore and
+  Karachi") or a command: *approve, reject …, pause, resume, stop, status, explain, show the
+  map / timeline / tree, send a payment email*. EN / اردو input. `POST /api/voice/command`
+  parses commands with rules (instant, predictable); anything else becomes a new goal.
+  Voice uses the same API calls as the buttons and sends no `confirm`, so **a high-risk
+  approval still needs a click**.
+- **It talks back:** short lines for important moments only (approval needed, critic block,
+  tool loaded, alert, task complete), max two queued. Each agent role has its own voice:
+  ElevenLabs (`ELEVENLABS_API_KEY`, optional, via `POST /api/voice/speak` with a phrase cache)
+  or, without a key, the browser's free `speechSynthesis` with a different pitch per role.
+
+## 1f. Stage demo tools
+
+- **▶ Demo** starts the payment watcher and a 3-store comparison side by side.
+- **📋 Script** opens the 4-minute presentation checklist with two extra buttons:
+  **🔧 Toolsmith demo** and **☠️ Unsafe build** (`POST /api/debug/toolsmith_demo`). These use
+  the scripted model so the Builder → Tester → Critic → human → hot-load loop (and the blocked
+  malicious build) happens the same way every time; a real model is rightly reluctant to
+  build tools it doesn't need. That tool targets the reserved `goldprice.example.pk`
+  domain, and real agents skip tools whose domains are all `*.example.*`.
+- **Tool Library** shows each grown tool's lineage: Builder → tests passed → Critic → the
+  human who approved it and when, plus connectors that hold vault secrets.
+- `tests/e2e_demo.py [base_url]` checks the stage demo; it passes against a real-LLM server.
+
 ## 2. How they coordinate
 
 Example: "Compare the price of a MacBook Air at 3 Pakistani stores".
@@ -187,8 +213,7 @@ MOCK_LLM=1 .venv/Scripts/python -m uvicorn  # e2e suites need mock mode app.main
 
 ## 8. Not built yet
 
-Google OAuth (the vault + Gmail via app password are built), sending real email, Tool Library
-lineage graph, voice (Phase 6),
+Google OAuth (the vault + Gmail via app password are built), sending real email,
 self-repair, explain/replay modes, scheduling (Phase 7). Verified with real Gemini: planning,
 parallel researchers with live SerpAPI, analyst, synthesis, and a real Toolsmith build
 (Builder retried after failing tests). Free-tier Gemini is slow (a 3-store comparison takes

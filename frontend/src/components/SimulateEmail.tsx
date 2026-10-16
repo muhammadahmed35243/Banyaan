@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { API_URL } from "@/lib/config";
+import { simulateEmail } from "@/lib/actions";
 
 const PRESETS = [
   { key: "payment", label: "💳 Bill due (payment)" },
@@ -17,11 +17,7 @@ export default function SimulateEmail() {
 
   const send = async (preset: string, label: string) => {
     setOpen(false);
-    await fetch(`${API_URL}/api/demo/emails`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ preset }),
-    }).catch(() => {});
+    await simulateEmail(preset).catch(() => {});
     setSent(label);
     setTimeout(() => setSent(""), 4000);
   };

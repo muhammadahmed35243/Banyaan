@@ -1,0 +1,12 @@
+# Deploys upload from the repo root (each Vercel project builds its own Root Directory).
+# Never upload local secrets or local-only files.
+.env
+**/.env
+**/.env.*
+!**/.env.example
+**/.venv
+**/node_modules
+**/.next
+**/*.db
+**/__pycache__
+**/.pytest_cache

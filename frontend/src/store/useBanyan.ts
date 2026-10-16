@@ -106,6 +106,8 @@ interface BanyanState {
   live: boolean; // false while the first poll replays history (no particles for old events)
   selectedId: string | null;
   toolsLoaded: number;
+  view: "tree" | "map" | "timeline";
+  setView: (v: "tree" | "map" | "timeline") => void;
   select: (id: string | null) => void;
   dismiss: (id: string) => void;
   setLive: () => void;
@@ -124,6 +126,8 @@ const EMPTY = {
 // One session holds many runs (goals) side by side; agent ids are unique across runs.
 export const useBanyan = create<BanyanState>((set) => ({
   ...EMPTY,
+  view: "tree",
+  setView: (view) => set({ view }),
   select: (id) => set({ selectedId: id }),
   dismiss: (id) => set((s) => ({ dismissed: new Set(s.dismissed).add(id) })),
   setLive: () => set({ live: true }),

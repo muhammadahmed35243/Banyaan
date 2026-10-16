@@ -13,7 +13,8 @@ from ..toolsmith.sandbox import run_tool
 MOCK_WORLD = {"": {"status": 200, "text": "<b>PKR 245,000</b> per tola (mock data)"}}
 
 
-async def run_generated(name: str, args: dict, run_id: str, agent_id: str, secrets: dict | None = None) -> dict:
+async def run_generated(name: str, args: dict, run_id: str, agent_id: str, secrets: dict | None = None,
+                        mock: bool = False) -> dict:
     row = await store.get_tool(name)
     if not row or row.status != "active":
         return {"ok": False, "error": f"tool '{name}' is not active"}
@@ -27,7 +28,7 @@ async def run_generated(name: str, args: dict, run_id: str, agent_id: str, secre
         f = Path(d) / "tool.py"
         f.write_text(row.code, encoding="utf-8")
         res = await run_tool(f, args, secrets or {}, row.allowed_domains,
-                             mock_http=MOCK_WORLD if settings.use_mock else None)
+                             mock_http=MOCK_WORLD if settings.use_mock or mock else None)
     await store.bump_usage(name)
     await ev("tool_result", tool=name, ok=res.get("ok", False), generated=True)
     return res

@@ -3,7 +3,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import routes_approvals, routes_debug, routes_goals, routes_runs, routes_sessions, routes_tools
+from .api import (routes_approvals, routes_debug, routes_goals, routes_runs, routes_sessions, routes_tools,
+                  routes_voice)
 from .config import settings
 from .db import init_db
 
@@ -29,6 +30,7 @@ app.include_router(routes_goals.router)
 app.include_router(routes_approvals.router)
 app.include_router(routes_tools.router)
 app.include_router(routes_sessions.router)
+app.include_router(routes_voice.router)
 
 
 @app.get("/health")

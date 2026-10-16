@@ -339,6 +339,8 @@ class OpenAILLM:
 
         out = []
         for row in await store.list_tools(True):
+            if row.allowed_domains and all(".example." in d or d.endswith(".example") for d in row.allowed_domains):
+                continue  # built by the scripted stage demo against reserved example.* domains: unusable for real
             async def invoke(_ctx, args_json, _name=row.name):
                 cur = CURRENT.get()
                 res = await dynamic.run_generated(_name, _json.loads(args_json or "{}"), cur[0], cur[1])
@@ -446,7 +448,7 @@ class MockLLM:
                     missing_tool=MissingTool(name_hint="gold_price_pkr", example_input="{}",
                                              description=f"Return the current gold price per tola in PKR. Request: {goal}"),
                 ), 600
-            res = await dynamic.run_generated("gold_price_pkr", {}, run_id, agent_id)
+            res = await dynamic.run_generated("gold_price_pkr", {}, run_id, agent_id, mock=True)
             price = (res.get("data") or {}).get("data", {}).get("price_per_tola_pkr") if res.get("ok") else None
             return WorkerOutput(result=f"Gold is PKR {price:,} per tola." if price else "The tool failed",
                                 confidence=0.9 if price else 0.3), 700

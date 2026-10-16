@@ -1,5 +1,6 @@
 import { API_URL } from "./config";
 import { useBanyan, type BanyanEvent } from "@/store/useBanyan";
+import { narrate } from "./voice";
 
 const POLL_MS = 600;
 
@@ -33,7 +34,9 @@ export function connectSession(sessionId: string): () => void {
       const { live, applyEvent, setLive } = useBanyan.getState();
       data.events.forEach((e) => {
         applyEvent(e);
-        if (live && e.type === "alert") desktopNotify(e);
+        if (!live) return; // history replay: no sounds, no notifications
+        if (e.type === "alert") desktopNotify(e);
+        narrate(e);
       });
       if (!live) setLive(); // the first batch was history; from now on events are live
     } catch (err) {
