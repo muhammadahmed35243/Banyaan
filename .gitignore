@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv
+
+# Secrets / local state
+.env
+*.db
+
+# Frontend
+node_modules/
+.next/
+
+# Generated at runtime
+backend/generated_tools/
+backend/audio_cache/
