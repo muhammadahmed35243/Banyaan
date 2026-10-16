@@ -32,7 +32,7 @@ function AgentCard({ data }: NodeProps<Node<{ agent: AgentNode }>>) {
       animate={{ scale: 1, opacity: 1 }}
       transition={{ type: "spring", stiffness: 260, damping: 20 }}
       style={{ width: W, height: H }}
-      className={`rounded-xl border-2 px-3 py-2 text-xs transition-colors duration-500 ${STATUS_STYLE[a.status]}`}
+      className={`cursor-pointer rounded-xl border-2 px-3 py-2 text-xs transition-colors duration-500 ${STATUS_STYLE[a.status]}`}
     >
       <Handle type="target" position={Position.Top} className="!bg-slate-500" />
       <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-slate-400">
@@ -40,6 +40,7 @@ function AgentCard({ data }: NodeProps<Node<{ agent: AgentNode }>>) {
         <span>{a.status.replace("_", " ")}</span>
       </div>
       <div className="mt-1 line-clamp-2 text-sm leading-tight text-slate-100">{a.goal}</div>
+      {a.tokensUsed > 0 && <div className="text-[10px] text-slate-500">{a.tokensUsed} tokens</div>}
       {a.confidence !== null && (
         <div className="mt-1.5 h-1 rounded bg-slate-700">
           <div className="h-1 rounded bg-emerald-400" style={{ width: `${a.confidence * 100}%` }} />
@@ -86,6 +87,7 @@ function Tree() {
   }, [count, fitView]);
   return (
     <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.3 }}
+      onNodeClick={(_, n) => useBanyan.getState().select(n.id)}
       nodesDraggable={false} nodesConnectable={false} proOptions={{ hideAttribution: true }} colorMode="dark">
       <Background color="#1e293b" gap={24} />
     </ReactFlow>

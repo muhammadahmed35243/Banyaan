@@ -1,3 +1,5 @@
+import asyncio
+
 from sqlmodel import Session, select
 
 from .db import engine
@@ -11,10 +13,15 @@ class EventBus:
     the only shared channel between whoever emits events and whoever reads them.
     """
 
-    async def publish(self, event: Event) -> None:
+    @staticmethod
+    def _insert(event: Event) -> None:
         with Session(engine) as s:
             s.add(EventRow(**event.model_dump()))
             s.commit()
+
+    async def publish(self, event: Event) -> None:
+        # Off the event loop: a DB round-trip must never stall other agents.
+        await asyncio.to_thread(self._insert, event)
 
     def since(self, run_id: str, after: int = 0) -> list[dict]:
         """Events with seq > after, oldest first. Each carries its `seq` cursor."""

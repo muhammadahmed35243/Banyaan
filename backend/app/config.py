@@ -9,6 +9,14 @@ class Settings(BaseSettings):
     # Supabase pooled Postgres URL (port 6543). Falls back to local SQLite.
     database_url: str = "sqlite:///banyan.db"
 
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4.1-mini"
+    mock_llm: bool = False  # force the scripted offline LLM (also used when no OpenAI key)
+    max_parallel_agents: int = 5
+    max_depth: int = 3
+    branch_token_budget: int = 40000
+    confidence_threshold: float = 0.6
+
     @property
     def sqlalchemy_url(self) -> str:
         url = self.database_url
@@ -20,3 +28,9 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# Tools read raw env vars (e.g. SERPAPI_API_KEY); make local .env values visible to them.
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(".env")

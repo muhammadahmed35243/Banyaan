@@ -26,9 +26,22 @@ export interface AgentNode {
   result: string | null;
 }
 
+export interface Approval {
+  id: string;
+  agentId: string | null;
+  kind: string;
+  title: string;
+  risk: "low" | "medium" | "high";
+  details: Record<string, unknown>;
+  status: "pending" | "approved" | "rejected" | "edited";
+}
+
 interface BanyanState {
   seen: Set<string>;
   nodes: Record<string, AgentNode>;
+  approvals: Record<string, Approval>;
+  selectedId: string | null;
+  select: (id: string | null) => void;
   runStatus: "idle" | "running" | "finished";
   applyEvent: (e: BanyanEvent) => void;
   reset: () => void;
@@ -39,14 +52,18 @@ interface BanyanState {
 export const useBanyan = create<BanyanState>((set) => ({
   seen: new Set(),
   nodes: {},
+  approvals: {},
+  selectedId: null,
+  select: (id) => set({ selectedId: id }),
   runStatus: "idle",
-  reset: () => set({ seen: new Set(), nodes: {}, runStatus: "idle" }),
+  reset: () => set({ seen: new Set(), nodes: {}, approvals: {}, selectedId: null, runStatus: "idle" }),
   applyEvent: (e) =>
     set((s) => {
       if (s.seen.has(e.id)) return s;
       const seen = new Set(s.seen).add(e.id);
       const p = e.payload;
       const nodes = { ...s.nodes };
+      const approvals = { ...s.approvals };
       let runStatus = s.runStatus;
 
       switch (e.type) {
@@ -72,8 +89,27 @@ export const useBanyan = create<BanyanState>((set) => ({
           break;
         case "agent_status":
           if (e.agent_id && nodes[e.agent_id])
-            nodes[e.agent_id] = { ...nodes[e.agent_id], status: p.status as AgentStatus };
+            nodes[e.agent_id] = {
+              ...nodes[e.agent_id],
+              status: p.status as AgentStatus,
+              goal: (p.goal as string) ?? nodes[e.agent_id].goal,
+              tokensUsed: (p.tokens as number) ?? nodes[e.agent_id].tokensUsed,
+            };
           break;
+        case "needs_human": {
+          const id = p.approval_id as string;
+          approvals[id] = {
+            id, agentId: e.agent_id, kind: p.kind as string, title: p.title as string,
+            risk: (p.risk as Approval["risk"]) ?? "low",
+            details: (p.details as Record<string, unknown>) ?? {}, status: "pending",
+          };
+          break;
+        }
+        case "human_decision": {
+          const id = p.approval_id as string;
+          if (approvals[id]) approvals[id] = { ...approvals[id], status: p.decision as Approval["status"] };
+          break;
+        }
         case "agent_finished":
           if (e.agent_id && nodes[e.agent_id])
             nodes[e.agent_id] = {
@@ -81,6 +117,7 @@ export const useBanyan = create<BanyanState>((set) => ({
               status: "done",
               result: (p.result as string) ?? null,
               confidence: (p.confidence as number) ?? null,
+              tokensUsed: (p.tokens as number) ?? nodes[e.agent_id].tokensUsed,
             };
           break;
         case "agent_failed":
@@ -92,6 +129,6 @@ export const useBanyan = create<BanyanState>((set) => ({
             };
           break;
       }
-      return { seen, nodes, runStatus };
+      return { seen, nodes, approvals, runStatus };
     }),
 }));

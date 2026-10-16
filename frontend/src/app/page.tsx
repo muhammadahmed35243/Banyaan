@@ -2,6 +2,8 @@
 
 import { Suspense, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import ApprovalInbox from "@/components/ApprovalInbox";
+import NodeDetails from "@/components/NodeDetails";
 import AgentTree from "@/components/AgentTree";
 import GoalInput from "@/components/GoalInput";
 import { connectRun } from "@/lib/ws";
@@ -23,9 +25,13 @@ function MissionControl() {
   return (
     <div className="flex h-screen flex-col">
       <GoalInput onRun={onRun} />
-      <main className="flex-1">
-        <AgentTree />
-      </main>
+      <div className="flex min-h-0 flex-1">
+        <main className="flex min-w-0 flex-1 flex-col">
+          <div className="flex-1"><AgentTree /></div>
+          <NodeDetails />
+        </main>
+        <ApprovalInbox />
+      </div>
     </div>
   );
 }
