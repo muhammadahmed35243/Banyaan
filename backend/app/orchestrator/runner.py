@@ -12,7 +12,11 @@ from ..approvals import Pruned
 from ..config import settings
 from ..events import bus
 from ..models import AgentRow, Event
+from ..toolsmith import pipeline as toolsmith
 from .agents import CURRENT, LLM, WorkerOutput, get_llm
+
+
+BUILTIN_TOOL_NAMES = ["web_search", "fetch_url", "calculate", "current_time", "send_email"]
 
 
 class HumanRejected(Exception):
@@ -24,6 +28,7 @@ class Ctx:
     run_id: str
     llm: LLM
     sem: asyncio.Semaphore
+    session_id: str | None = None
 
 
 @dataclass
@@ -35,6 +40,7 @@ class Node:
     notes: list[str] = field(default_factory=list)
     tokens: int = 0
     budget_ok: bool = False
+    role: str = "researcher"
 
 
 async def emit(ctx: Ctx, type_: str, node: Node | None = None, **payload) -> None:
@@ -120,9 +126,9 @@ async def llm_call(ctx: Ctx, node: Node, fn, *args):
 
 
 async def run_node(ctx: Ctx, node_id: str, parent_id: str | None, goal: str, depth: int,
-                   context: str = "", plan_first: bool = False) -> str | None:
-    node = Node(node_id, parent_id, depth, goal)
-    role = "planner" if plan_first else "worker"
+                   context: str = "", plan_first: bool = False, role: str = "researcher") -> str | None:
+    node = Node(node_id, parent_id, depth, goal, role="planner" if plan_first else role)
+    role = node.role
     await store.upsert_agent(AgentRow(id=node.id, run_id=ctx.run_id, parent_id=parent_id,
                                       depth=depth, role=role, goal=goal))
     await emit(ctx, "agent_spawned", node, role=role, goal=goal, depth=depth, status="queued")
@@ -149,12 +155,32 @@ async def _solve(ctx: Ctx, node: Node, context: str, plan_first: bool) -> str:
         return await _plan_and_run(ctx, node)
     await set_status(ctx, node, "thinking")
     prompt_ctx = "\n".join([context, *node.notes]).strip()
-    out: WorkerOutput = await llm_call(ctx, node, ctx.llm.work, node.goal, prompt_ctx)
+    out: WorkerOutput = await llm_call(ctx, node, ctx.llm.work, node.goal, prompt_ctx, node.role)
     await checkpoint(ctx, node)
     if out.missing_tool:
-        # Toolsmith pipeline arrives in Phase 3; until then a missing capability = low confidence.
+        # The worker lacks a capability: grow one. Build -> test -> critique -> human -> hot-load.
         await emit(ctx, "log", node, message=f"Missing capability: {out.missing_tool.description}")
-        out.confidence = min(out.confidence, 0.3)
+        existing = [*BUILTIN_TOOL_NAMES, *[t.name for t in await store.list_tools(True)]]
+        need = await llm_call(ctx, node, ctx.llm.justify_tool, out.missing_tool.description, existing)
+        if not need.needed:
+            # Not worth a build + a human review: send the worker back to the tools it has.
+            await emit(ctx, "log", node, message=f"No new tool needed: {need.reason}")
+            node.notes.append("A new tool is NOT needed. Use web_search / fetch_url / calculate. "
+                              f"({need.reason})")
+            prompt_ctx = "\n".join([context, *node.notes]).strip()
+            out = await llm_call(ctx, node, ctx.llm.work, node.goal, prompt_ctx, node.role)
+            out.missing_tool = None
+            tool = None
+        else:
+            await set_status(ctx, node, "running_tool")
+            tool = await toolsmith.build_tool(ctx.run_id, node.id, out.missing_tool, ctx.llm)
+        await checkpoint(ctx, node)
+        if tool:
+            await set_status(ctx, node, "thinking")
+            out = await llm_call(ctx, node, ctx.llm.work, node.goal, prompt_ctx, node.role)  # retry with the new tool
+        elif need.needed:
+            await emit(ctx, "log", node, message="Capability denied; continuing without it")
+            out.confidence = min(out.confidence, 0.3)
     if out.needs_decomposition:
         if node.depth < settings.max_depth:
             return await _plan_and_run(ctx, node)
@@ -167,6 +193,12 @@ async def _plan_and_run(ctx: Ctx, node: Node) -> str:
     await set_status(ctx, node, "thinking")
     plan = await llm_call(ctx, node, ctx.llm.plan, node.goal, node.depth)
     await checkpoint(ctx, node)
+    if plan.standing_watch and node.depth == 0:
+        # A standing goal ("whenever X, tell me"): spawn a long-lived watcher agent.
+        from .. import watchers
+
+        await set_status(ctx, node, "running_tool")
+        return await _finish(ctx, node, await watchers.start(ctx, node, plan.standing_watch), 0.9)
     if plan.direct_answer or not plan.subtasks:
         return await _finish(ctx, node, plan.direct_answer or "No subtasks produced", 0.8)
 
@@ -181,7 +213,7 @@ async def _plan_and_run(ctx: Ctx, node: Node) -> str:
                 if sid not in started and all(d in results for d in deps):
                     dep_ctx = "\n".join(f"{d}: {results[d]}" for d in deps if results[d])
                     t = asyncio.create_task(run_node(
-                        ctx, f"{node.id}.{sid}", node.id, s.goal, node.depth + 1, dep_ctx))
+                        ctx, f"{node.id}.{sid}", node.id, s.goal, node.depth + 1, dep_ctx, role=s.role))
                     running[t] = sid
                     started.add(sid)
             if not running:  # unsatisfiable (cyclic) dependencies
@@ -199,6 +231,8 @@ async def _plan_and_run(ctx: Ctx, node: Node) -> str:
     good = {sid: r for sid, r in results.items() if r}
     if not good:
         raise RuntimeError("all subtasks failed or were pruned")
+    if len(subs) == 1:  # nothing to merge: don't spend a model call (or a node) on it
+        return await _finish(ctx, node, next(iter(good.values())), 0.8)
     out: WorkerOutput = await llm_call(ctx, node, ctx.llm.synthesize, node.goal, good)
     return await _finish(ctx, node, out.result, out.confidence)
 
@@ -219,8 +253,8 @@ async def _finish(ctx: Ctx, node: Node, result: str, confidence: float) -> str:
     return result
 
 
-async def run_goal(run_id: str, goal: str) -> str | None:
-    ctx = Ctx(run_id, get_llm(), asyncio.Semaphore(settings.max_parallel_agents))
+async def run_goal(run_id: str, goal: str, session_id: str | None = None) -> str | None:
+    ctx = Ctx(run_id, get_llm(), asyncio.Semaphore(settings.max_parallel_agents), session_id)
     await emit(ctx, "run_started", goal=goal, mock=type(ctx.llm).__name__ == "MockLLM")
     result = await run_node(ctx, f"{run_id}-root", None, goal, 0, plan_first=True)
     await emit(ctx, "run_finished", result=result)

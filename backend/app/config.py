@@ -11,11 +11,29 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
+    # Free alternative: Google AI Studio via its OpenAI-compatible endpoint.
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.5-flash-lite"
     mock_llm: bool = False  # force the scripted offline LLM (also used when no OpenAI key)
     max_parallel_agents: int = 5
     max_depth: int = 3
     branch_token_budget: int = 40000
     confidence_threshold: float = 0.6
+    sandbox_timeout_sec: float = 20
+    vault_key: str = ""  # encrypts the secrets vault; set it in production
+    watch_interval_sec: int = 15  # minimum gap between two checks of one watcher
+
+    @property
+    def provider(self) -> str:
+        return "openai" if self.openai_api_key else "gemini" if self.gemini_api_key else "mock"
+
+    @property
+    def llm_model(self) -> str:
+        return self.openai_model if self.provider == "openai" else self.gemini_model
+
+    @property
+    def use_mock(self) -> bool:
+        return self.mock_llm or self.provider == "mock"
 
     @property
     def sqlalchemy_url(self) -> str:

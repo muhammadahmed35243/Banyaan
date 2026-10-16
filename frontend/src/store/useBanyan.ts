@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 export type AgentStatus =
   | "queued" | "thinking" | "running_tool" | "waiting_human"
-  | "done" | "failed" | "paused" | "pruned";
+  | "done" | "failed" | "paused" | "pruned" | "watching";
 
 export interface BanyanEvent {
   id: string;
@@ -36,27 +36,49 @@ export interface Approval {
   status: "pending" | "approved" | "rejected" | "edited";
 }
 
+export interface Alert {
+  id: string;
+  ts: string;
+  agentId: string | null;
+  sender: string;
+  subject: string;
+  summary: string;
+  amount: string | null;
+}
+
+export interface Run { id: string; goal: string; status: "running" | "finished" }
+
 interface BanyanState {
   seen: Set<string>;
   nodes: Record<string, AgentNode>;
   approvals: Record<string, Approval>;
+  runs: Record<string, Run>;
+  alerts: Alert[];
+  dismissed: Set<string>;
   selectedId: string | null;
+  toolsLoaded: number;
   select: (id: string | null) => void;
-  runStatus: "idle" | "running" | "finished";
+  dismiss: (id: string) => void;
   applyEvent: (e: BanyanEvent) => void;
   reset: () => void;
 }
 
 // All UI state is derived from events, so replay on reconnect is free.
-// Events are de-duplicated by id because the server replays history on every connect.
+// Events are de-duplicated by id because the first poll replays the whole session.
+// One session holds many runs (goals) side by side; agent ids are unique across runs.
 export const useBanyan = create<BanyanState>((set) => ({
   seen: new Set(),
   nodes: {},
   approvals: {},
+  runs: {},
+  alerts: [],
+  dismissed: new Set(),
   selectedId: null,
+  toolsLoaded: 0,
   select: (id) => set({ selectedId: id }),
-  runStatus: "idle",
-  reset: () => set({ seen: new Set(), nodes: {}, approvals: {}, selectedId: null, runStatus: "idle" }),
+  dismiss: (id) => set((s) => ({ dismissed: new Set(s.dismissed).add(id) })),
+  reset: () => set({ seen: new Set(), nodes: {}, approvals: {}, runs: {}, alerts: [], dismissed: new Set(),
+    selectedId: null, toolsLoaded: 0 }),
   applyEvent: (e) =>
     set((s) => {
       if (s.seen.has(e.id)) return s;
@@ -64,14 +86,26 @@ export const useBanyan = create<BanyanState>((set) => ({
       const p = e.payload;
       const nodes = { ...s.nodes };
       const approvals = { ...s.approvals };
-      let runStatus = s.runStatus;
+      const runs = { ...s.runs };
+      let alerts = s.alerts;
+      let toolsLoaded = s.toolsLoaded;
 
       switch (e.type) {
         case "run_started":
-          runStatus = "running";
+          runs[e.run_id] = { id: e.run_id, goal: (p.goal as string) ?? "", status: "running" };
           break;
         case "run_finished":
-          runStatus = "finished";
+          runs[e.run_id] = { ...(runs[e.run_id] ?? { id: e.run_id, goal: "" }), status: "finished" };
+          break;
+        case "tool_loaded":
+          toolsLoaded += 1;
+          break;
+        case "alert":
+          alerts = [{
+            id: (p.alert_id as string) ?? e.id, ts: e.ts, agentId: e.agent_id,
+            sender: (p.sender as string) ?? "", subject: (p.subject as string) ?? "",
+            summary: (p.summary as string) ?? "", amount: (p.amount as string) ?? null,
+          }, ...alerts];
           break;
         case "agent_spawned":
           if (e.agent_id)
@@ -129,6 +163,6 @@ export const useBanyan = create<BanyanState>((set) => ({
             };
           break;
       }
-      return { seen, nodes, approvals, runStatus };
+      return { seen, nodes, approvals, runs, alerts, toolsLoaded };
     }),
 }));

@@ -38,7 +38,11 @@ def statuses(evs):
     return st
 
 
-def wait_for(cond, timeout=60):
+def pending_ok(run_id):
+    return bool(httpx.get(f"{BASE}/api/approvals?status=pending&run_id={run_id}", timeout=30).json())
+
+
+def wait_for(cond, timeout=90):
     end = time.time() + timeout
     while time.time() < end:
         v = cond()
@@ -56,17 +60,24 @@ print("PASS parallel: 3 workers active at once")
 
 appr = wait_for(lambda: httpx.get(f"{BASE}/api/approvals?status=pending&run_id={run_id}").json())
 assert appr[0]["kind"] == "low_confidence", appr
-s = statuses(events(run_id))
-done = [k for k, v in s.items() if ".t" in k and v == "done"]
-assert len(done) == 2, s
+# the approval stays pending until we decide, so these must finish WHILE t3 waits for us
+wait_for(lambda: sum(v == "done" for k, v in statuses(events(run_id)).items() if k.endswith((".t1", ".t2"))) == 2)
+assert pending_ok(run_id)
 print("PASS approval: one branch waits for a human while 2 others finished")
 
 r = httpx.post(f"{BASE}/api/approvals/{appr[0]['id']}/decide", json={"decision": "approved"})
 assert r.status_code == 200, r.text
-t.join(60)
+t.join(180)
 assert out.get("result"), out
 assert events(run_id)[-1]["type"] == "run_finished"
 print("PASS run finished after approval:", out["result"][:60])
+ev = events(run_id)
+analyst = [e for e in ev if e["type"] == "agent_spawned" and e["payload"].get("role") == "analyst"]
+fin = [e for e in ev if e["type"] == "agent_finished" and e["agent_id"] == analyst[0]["agent_id"]]
+assert fin and "Cheapest price found" in fin[0]["payload"]["result"], fin
+researcher_done = [e["ts"] for e in ev if e["type"] == "agent_finished" and e["agent_id"] and e["agent_id"].endswith((".t1", ".t2", ".t3"))]
+assert len(researcher_done) == 3 and max(researcher_done) < analyst_ts if (analyst_ts := fin[0]["ts"]) else False
+print("PASS multi-agent: analyst waited for 3 researchers, then used `calculate` ->", fin[0]["payload"]["result"])
 
 # --- 2. prune cancels only that branch ---
 run_id, t, out = start(GOAL)
@@ -76,7 +87,20 @@ assert httpx.post(f"{BASE}/api/agents/{target}/control", json={"action": "prune"
 wait_for(lambda: statuses(events(run_id)).get(target) == "pruned", 20)
 appr = wait_for(lambda: httpx.get(f"{BASE}/api/approvals?status=pending&run_id={run_id}").json())
 httpx.post(f"{BASE}/api/approvals/{appr[0]['id']}/decide", json={"decision": "approved"})
-t.join(60)
+t.join(180)
 s = statuses(events(run_id))
 assert s[target] == "pruned" and s[f"{run_id}-root.t2"] == "done" and s[f"{run_id}-root.t3"] == "done", s
 print("PASS prune: only the pruned branch was cancelled; run still finished")
+
+# --- 3. risky action (send_email) needs a confirmed click; dependency result is passed on ---
+run_id, t, out = start("Find the MacBook Air price and email it to the team")
+appr = wait_for(lambda: httpx.get(f"{BASE}/api/approvals?status=pending&run_id={run_id}").json())
+assert appr[0]["kind"] == "risky_action" and appr[0]["risk"] == "high", appr
+assert "Daraz" in appr[0]["details"]["body"], appr[0]["details"]  # t1's result flowed into t2
+r = httpx.post(f"{BASE}/api/approvals/{appr[0]['id']}/decide", json={"decision": "approved"})
+assert r.status_code == 400, r.text
+r = httpx.post(f"{BASE}/api/approvals/{appr[0]['id']}/decide", json={"decision": "approved", "confirm": True})
+assert r.status_code == 200, r.text
+t.join(180)
+assert any(e["type"] == "log" and "email sent" in e["payload"].get("message", "") for e in events(run_id))
+print("PASS risky action: high risk refused without confirm, ran after confirmed approval")

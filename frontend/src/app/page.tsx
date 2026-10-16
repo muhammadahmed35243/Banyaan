@@ -1,30 +1,34 @@
 "use client";
 
-import { Suspense, useCallback, useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ApprovalInbox from "@/components/ApprovalInbox";
 import NodeDetails from "@/components/NodeDetails";
 import AgentTree from "@/components/AgentTree";
 import GoalInput from "@/components/GoalInput";
-import { connectRun } from "@/lib/ws";
+import { connectSession } from "@/lib/ws";
+import { newId } from "@/lib/ids";
 import { useBanyan } from "@/store/useBanyan";
 
 function MissionControl() {
   const router = useRouter();
-  const runId = useSearchParams().get("run");
+  const sessionId = useSearchParams().get("session");
 
-  // The run id lives in the URL, so a refresh reconnects and the server replays the run.
+  // The session id lives in the URL: every goal typed here joins it and runs side by side,
+  // and a refresh replays the whole session from stored events.
   useEffect(() => {
-    if (!runId) return;
+    if (!sessionId) {
+      router.replace(`/?session=${newId()}`);
+      return;
+    }
     useBanyan.getState().reset();
-    return connectRun(runId);
-  }, [runId]);
+    return connectSession(sessionId);
+  }, [sessionId, router]);
 
-  const onRun = useCallback((id: string) => router.push(`/?run=${id}`), [router]);
-
+  if (!sessionId) return null;
   return (
     <div className="flex h-screen flex-col">
-      <GoalInput onRun={onRun} />
+      <GoalInput sessionId={sessionId} onNewSession={() => router.push(`/?session=${newId()}`)} />
       <div className="flex min-h-0 flex-1">
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex-1"><AgentTree /></div>

@@ -1,3 +1,4 @@
 {
+  "regions": ["hnd1"],
   "functions": { "index.py": { "maxDuration": 300 } }
 }

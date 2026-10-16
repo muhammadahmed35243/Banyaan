@@ -33,5 +33,17 @@ class EventBus:
             ).all()
         return [Event(**r.model_dump(exclude={"seq"})).model_dump(mode="json") | {"seq": r.seq} for r in rows]
 
+    def since_session(self, session_id: str, after: int = 0, limit: int = 1000) -> list[dict]:
+        """Events of every run in a session, in one global order (seq is shared by all runs)."""
+        from .models import SessionRun
+
+        runs = select(SessionRun.run_id).where(SessionRun.session_id == session_id)
+        with Session(engine) as s:
+            rows = s.exec(
+                select(EventRow).where(EventRow.run_id.in_(runs), EventRow.seq > after)
+                .order_by(EventRow.seq).limit(limit)
+            ).all()
+        return [Event(**r.model_dump(exclude={"seq"})).model_dump(mode="json") | {"seq": r.seq} for r in rows]
+
 
 bus = EventBus()

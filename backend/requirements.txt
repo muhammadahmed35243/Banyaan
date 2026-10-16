@@ -17,6 +17,8 @@ attrs==26.1.0
     # via
     #   jsonschema
     #   referencing
+bandit==1.9.4
+    # via banyan-backend
 certifi==2026.7.22
     # via
     #   httpcore
@@ -28,8 +30,12 @@ charset-normalizer==3.5.2
     # via requests
 click==8.5.0
     # via uvicorn
+colorama==0.4.6 ; sys_platform == 'win32'
+    # via bandit
 cryptography==50.0.2
-    # via pyjwt
+    # via
+    #   banyan-backend
+    #   pyjwt
 fastapi==0.143.2
     # via banyan-backend
 griffelib==2.3.2
@@ -66,10 +72,14 @@ jsonschema==4.26.0
     # via mcp
 jsonschema-specifications==2025.9.1
     # via jsonschema
+markdown-it-py==4.2.0
+    # via rich
 mcp==2.3.0
     # via openai-agents
 mcp-types==2.3.0
     # via mcp
+mdurl==0.1.2
+    # via markdown-it-py
 openai==3.31.0
     # via openai-agents
 openai-agents==0.24.0
@@ -97,6 +107,8 @@ pydantic-core==2.50.1
     # via pydantic
 pydantic-settings==2.16.0
     # via banyan-backend
+pygments==2.21.0
+    # via rich
 pyjwt==2.15.1
     # via
     #   mcp
@@ -113,13 +125,17 @@ python-multipart==0.0.32
 pywin32==312 ; sys_platform == 'win32'
     # via mcp
 pyyaml==6.0.3
-    # via uvicorn
+    # via
+    #   bandit
+    #   uvicorn
 referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
 requests==2.34.2
     # via openai-agents
+rich==15.0.0
+    # via bandit
 rpds-py==2026.9.1
     # via
     #   jsonschema
@@ -138,6 +154,8 @@ starlette==1.8.0
     #   mcp
     #   openai-agents
     #   sse-starlette
+stevedore==5.9.1
+    # via bandit
 truststore==0.10.5 ; sys_platform != 'emscripten'
     # via
     #   httpcore2

@@ -39,4 +39,61 @@ async def fetch_url(url: str) -> str:
         return f"fetch_url failed: {type(e).__name__}"
 
 
+async def send_email(to: str, subject: str, body: str, *, run_id: str, agent_id: str) -> dict:
+    """RISKY / irreversible: always pauses this branch for a human click first.
+    Mock for now: logs instead of sending (real Gmail send comes with Phase 4)."""
+    from .. import approvals, store
+    from ..events import bus
+    from ..models import Event
+
+    await store.set_agent(agent_id, status="waiting_human")
+    await bus.publish(Event(run_id=run_id, type="agent_status", agent_id=agent_id,
+                            payload={"status": "waiting_human"}))
+    row = await approvals.request(run_id, agent_id, "risky_action", f"Send email to {to}",
+                                  {"to": to, "subject": subject, "body": body}, "high")
+    await store.set_agent(agent_id, status="thinking")
+    await bus.publish(Event(run_id=run_id, type="agent_status", agent_id=agent_id,
+                            payload={"status": "thinking"}))
+    if row.status == "rejected":
+        return {"sent": False, "reason": row.note or "rejected by human"}
+    await bus.publish(Event(run_id=run_id, type="log", agent_id=agent_id,
+                            payload={"message": f"(mock) email sent to {to}: {subject}"}))
+    return {"sent": True, "mock": True}
+
+
+def calculate(expression: str) -> str:
+    """Safely evaluate arithmetic: + - * / ** %, parentheses, and min/max/sum/round/abs."""
+    import ast
+    import operator as op
+
+    ops = {ast.Add: op.add, ast.Sub: op.sub, ast.Mult: op.mul, ast.Div: op.truediv,
+           ast.Pow: op.pow, ast.Mod: op.mod, ast.USub: op.neg, ast.UAdd: op.pos}
+    funcs = {"min": min, "max": max, "sum": lambda *a: sum(a), "round": round, "abs": abs}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in funcs and not n.keywords:
+            return funcs[n.func.id](*[ev(a) for a in n.args])
+        raise ValueError("unsupported expression")
+
+    try:
+        if len(expression) > 300:
+            return "calculate failed: expression too long"
+        return str(ev(ast.parse(expression, mode="eval").body))
+    except Exception as e:
+        return f"calculate failed: {type(e).__name__}"
+
+
+def current_time() -> str:
+    """Current UTC date and time (ISO 8601)."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 TOOLS = {"web_search": web_search, "fetch_url": fetch_url}

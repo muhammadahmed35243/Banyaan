@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import store
+from .. import store, vault
 
 router = APIRouter(prefix="/api/approvals")
 
@@ -33,6 +33,10 @@ async def decide(approval_id: str, body: DecideIn) -> dict:
     current = await store.get_approval(approval_id)
     if not current:
         raise HTTPException(404, "unknown approval")
+    if current.details.get("blocked") and body.decision != "rejected":
+        raise HTTPException(400, "this build was blocked by the security checks and can only be rejected")
+    if current.kind == "watch_setup" and body.decision != "rejected" and not await vault.info(current.details.get("credential", "gmail")):
+        raise HTTPException(400, "provide a credential (or choose the demo inbox) to approve this")
     if current.risk == "high" and body.decision != "rejected" and not body.confirm:
         raise HTTPException(400, "high-risk approvals require confirm=true from a UI click")
     row = await store.decide(approval_id, body.decision, body.note, body.edited_payload)

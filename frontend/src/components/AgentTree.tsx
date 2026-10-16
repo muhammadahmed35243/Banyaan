@@ -22,6 +22,11 @@ const STATUS_STYLE: Record<AgentStatus, string> = {
   failed: "border-red-500 bg-red-950/60",
   paused: "border-zinc-500 bg-zinc-800/70",
   pruned: "border-zinc-700 bg-zinc-900/40 opacity-40",
+  watching: "border-cyan-400 bg-cyan-950/60 pulse-watch",
+};
+
+const ROLE_LABEL: Record<string, string> = {
+  builder: "🔧 builder", tester: "🔧 tester", critic: "🔧 critic", watcher: "👁 watcher", alert: "🔔 alert",
 };
 
 function AgentCard({ data }: NodeProps<Node<{ agent: AgentNode }>>) {
@@ -36,7 +41,10 @@ function AgentCard({ data }: NodeProps<Node<{ agent: AgentNode }>>) {
     >
       <Handle type="target" position={Position.Top} className="!bg-slate-500" />
       <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-slate-400">
-        <span>{a.role}</span>
+        <span className={["builder", "tester", "critic"].includes(a.role) ? "text-purple-300"
+          : ["watcher", "alert"].includes(a.role) ? "text-cyan-300" : ""}>
+          {ROLE_LABEL[a.role] ?? a.role}
+        </span>
         <span>{a.status.replace("_", " ")}</span>
       </div>
       <div className="mt-1 line-clamp-2 text-sm leading-tight text-slate-100">{a.goal}</div>

@@ -9,8 +9,10 @@ router = APIRouter(prefix="/api/debug")
 
 async def _fake_run(run_id: str) -> None:
     async def emit(type_, agent_id=None, parent_id=None, **payload):
+        # Prefix ids with the run so several fake runs can share one session's screen.
+        pre = lambda i: f"{run_id}-{i}" if i else None  # noqa: E731
         await bus.publish(
-            Event(run_id=run_id, type=type_, agent_id=agent_id, parent_id=parent_id, payload=payload)
+            Event(run_id=run_id, type=type_, agent_id=pre(agent_id), parent_id=pre(parent_id), payload=payload)
         )
 
     async def spawn(aid, parent, role, goal, depth):
@@ -57,8 +59,11 @@ async def _fake_run(run_id: str) -> None:
 
 
 @router.post("/fake_run/{run_id}")
-async def fake_run(run_id: str) -> dict:
+async def fake_run(run_id: str, session_id: str | None = None) -> dict:
     """Plays the scripted run inside this request (~10s). The client picks the run_id and
-    polls /api/runs/{run_id}/events meanwhile; serverless has no background tasks."""
+    polls for events meanwhile; serverless has no background tasks."""
+    from .routes_sessions import link_run
+
+    await link_run(session_id, run_id, "Fake run")
     await _fake_run(run_id)
     return {"run_id": run_id}

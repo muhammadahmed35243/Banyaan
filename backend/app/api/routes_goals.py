@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import store
+from .. import store, watchers
 from ..events import bus
 from ..models import Event
 from ..orchestrator.runner import run_goal
+from .routes_sessions import link_run
 
 router = APIRouter(prefix="/api")
 
@@ -12,13 +13,15 @@ router = APIRouter(prefix="/api")
 class GoalIn(BaseModel):
     goal: str
     run_id: str  # chosen by the client so it can poll events while this request runs
+    session_id: str | None = None  # many goals can run side by side in one session
 
 
 @router.post("/goals")
 async def create_goal(body: GoalIn) -> dict:
     """Runs the whole goal inside this request (serverless has no background tasks);
-    the browser follows progress by polling /api/runs/{run_id}/events."""
-    result = await run_goal(body.run_id, body.goal)
+    the browser follows progress by polling /api/sessions/{session_id}/events."""
+    await link_run(body.session_id, body.run_id, body.goal)
+    result = await run_goal(body.run_id, body.goal, body.session_id)
     return {"run_id": body.run_id, "result": result}
 
 
@@ -36,6 +39,11 @@ async def control_agent(agent_id: str, body: ControlIn) -> dict:
         return {"ok": True, "note": "already pruned"}
     if body.action in ("redirect", "inject") and not body.text:
         raise HTTPException(400, "text required")
+    if row.role == "watcher" and await watchers.control(agent_id, body.action):
+        # Standing agents have no running coroutine to check flags; act on them directly.
+        await bus.publish(Event(run_id=row.run_id, type="log", agent_id=agent_id,
+                                payload={"message": f"Human: {body.action} watcher"}))
+        return {"ok": True}
 
     if body.action == "prune":  # cancel the whole subtree
         agents = await store.run_agents(row.run_id)
