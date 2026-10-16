@@ -1,5 +1,4 @@
 import asyncio
-import uuid
 
 from fastapi import APIRouter
 
@@ -7,10 +6,6 @@ from ..events import bus
 from ..models import Event
 
 router = APIRouter(prefix="/api/debug")
-
-# Held so background tasks are not garbage collected mid-run.
-_tasks: set[asyncio.Task] = set()
-
 
 async def _fake_run(run_id: str) -> None:
     async def emit(type_, agent_id=None, parent_id=None, **payload):
@@ -61,10 +56,9 @@ async def _fake_run(run_id: str) -> None:
     await emit("run_finished")
 
 
-@router.post("/fake_run")
-async def fake_run() -> dict:
-    run_id = uuid.uuid4().hex[:12]
-    t = asyncio.create_task(_fake_run(run_id))
-    _tasks.add(t)
-    t.add_done_callback(_tasks.discard)
+@router.post("/fake_run/{run_id}")
+async def fake_run(run_id: str) -> dict:
+    """Plays the scripted run inside this request (~10s). The client picks the run_id and
+    polls /api/runs/{run_id}/events meanwhile; serverless has no background tasks."""
+    await _fake_run(run_id)
     return {"run_id": run_id}

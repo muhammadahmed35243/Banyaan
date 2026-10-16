@@ -1,25 +1,33 @@
-import { WS_URL } from "./config";
+import { API_URL } from "./config";
 import { useBanyan, type BanyanEvent } from "@/store/useBanyan";
 
-/** Connect to a run's event stream; reconnects automatically. Returns a disconnect fn. */
-export function connectRun(runId: string): () => void {
-  let ws: WebSocket | null = null;
-  let closed = false;
-  let retry: ReturnType<typeof setTimeout> | undefined;
+const POLL_MS = 600;
 
-  const open = () => {
-    ws = new WebSocket(`${WS_URL}/ws/${runId}`);
-    ws.onmessage = (m) => useBanyan.getState().applyEvent(JSON.parse(m.data) as BanyanEvent);
-    // Server replays full history on connect; the store de-dupes by event id.
-    ws.onclose = () => {
-      if (!closed) retry = setTimeout(open, 1000);
-    };
+/**
+ * Follow a run's events by polling with a sequence cursor (Vercel functions can't hold
+ * WebSockets). The first poll uses after=0, which replays the whole run on refresh.
+ * Returns a disconnect fn.
+ */
+export function connectRun(runId: string): () => void {
+  let cursor = 0;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const poll = async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/runs/${runId}/events?after=${cursor}`);
+      const data = (await r.json()) as { events: BanyanEvent[]; cursor: number };
+      cursor = data.cursor;
+      data.events.forEach((e) => useBanyan.getState().applyEvent(e));
+    } catch (err) {
+      console.error("poll failed", err);
+    }
+    if (!stopped) timer = setTimeout(poll, POLL_MS);
   };
-  open();
+  poll();
 
   return () => {
-    closed = true;
-    clearTimeout(retry);
-    ws?.close();
+    stopped = true;
+    clearTimeout(timer);
   };
 }
