@@ -17,7 +17,7 @@ from .config import settings
 from .connectors import email_inbox
 from .db import engine
 from .events import bus
-from .models import AgentRow, Event, WatchRow
+from .models import AgentRow, BillRow, Event, WatchRow
 
 CREDENTIAL = "gmail"
 
@@ -99,10 +99,13 @@ def _claim(watch_id: str) -> bool:
         return res.rowcount == 1
 
 
-def _active(session_id: str) -> list[WatchRow]:
+def _active(session_id: str | None) -> list[WatchRow]:
+    """Active watches of one session, or of all sessions (session_id=None, used by the cron)."""
     with Session(engine, expire_on_commit=False) as s:
-        return list(s.exec(select(WatchRow).where(WatchRow.session_id == session_id,
-                                                  WatchRow.status == "active")).all())
+        q = select(WatchRow).where(WatchRow.status == "active")
+        if session_id:
+            q = q.where(WatchRow.session_id == session_id)
+        return list(s.exec(q).all())
 
 
 def _save(w: WatchRow) -> None:
@@ -119,7 +122,7 @@ def _progress(w: WatchRow) -> None:
         s.commit()
 
 
-async def tick(session_id: str) -> dict:
+async def tick(session_id: str | None) -> dict:
     import asyncio
 
     checked = 0
@@ -147,6 +150,8 @@ async def _check(w: WatchRow) -> None:
             await _ev(w.run_id, "log", w.agent_id, message="Credential was removed from the vault; stopping")
             await stop(w, "failed")
             return
+        await _ev(w.run_id, "secret_used", w.agent_id, name=w.credential, purpose="check inbox")
+        await _ev(w.run_id, "tool_call", w.agent_id, tool="email_inbox", args={"mode": secret.get("mode")})
         mails, w.cursor = await email_inbox.fetch_new(secret, w.cursor)
         w.checks += 1
         if mails:
@@ -166,6 +171,9 @@ async def _check(w: WatchRow) -> None:
                           subject=mail["subject"], summary=m.summary, amount=m.amount)
                 await _ev(w.run_id, "speak", w.agent_id, role="watcher",
                           text=f"Payment alert: {m.summary}" if "pay" in w.condition else f"Alert: {m.summary}")
+                await _notify(w, mail["subject"] or "Banyan alert", m.summary + (f" ({m.amount})" if m.amount else ""))
+                if m.action in ACTIONS:
+                    await _propose(w, aid, m, mail)
             if not hits:
                 await _ev(w.run_id, "log", w.agent_id, message=f"{len(mails)} new email(s); none matched")
         await asyncio.to_thread(_progress, w)
@@ -175,6 +183,77 @@ async def _check(w: WatchRow) -> None:
     fresh = await asyncio.to_thread(_get, w.id)
     if fresh and fresh.status == "active":
         await _ev(w.run_id, "agent_status", w.agent_id, status="watching")
+
+
+# ---------- follow-up actions (proposed by the watcher, executed only after a human approves) ----------
+
+ACTIONS = {"track_bill": "Add bill to tracker", "mark_paid": "Record payment as paid"}
+
+
+async def _propose(w: WatchRow, alert_id: str, m, mail: dict) -> None:
+    """Non-blocking approval: the tick ends right away; the action runs when a human decides
+    (see execute_action, called by the decide endpoint)."""
+    what = " · ".join(x for x in (m.payee, m.amount, f"due {m.due_date}" if m.due_date else None) if x)
+    title = f"{ACTIONS[m.action]}: {what or mail['subject']}"
+    details = {"action": m.action, "payee": m.payee or mail["from"], "amount": m.amount or "",
+               "due_date": m.due_date, "subject": mail["subject"], "session_id": w.session_id,
+               "watch_id": w.id, "result": m.summary}
+    approval_id = await store.create_approval(run_id=w.run_id, agent_id=alert_id, kind="watch_action",
+                                              title=title, details=details, risk="low")
+    await _ev(w.run_id, "needs_human", alert_id, approval_id=approval_id, kind="watch_action", title=title,
+              risk="low", details=details)
+
+
+def _add_bill(b: BillRow) -> None:
+    with Session(engine, expire_on_commit=False) as s:
+        s.add(b)
+        s.commit()
+
+
+async def execute_action(approval) -> None:
+    """Called after a human decides a watch_action card."""
+    import asyncio
+
+    d = approval.details | (approval.edited_payload or {})
+    await _ev(approval.run_id, "human_decision", approval.agent_id, approval_id=approval.id,
+              decision=approval.status, note=approval.note)
+    if approval.status == "rejected":
+        await _ev(approval.run_id, "log", approval.agent_id, message=f"Human declined: {approval.title}")
+        return
+    status = "paid" if d["action"] == "mark_paid" else "due"
+    bill = BillRow(id=uuid.uuid4().hex[:12], session_id=d["session_id"], payee=d.get("payee") or "",
+                   amount=d.get("amount") or "", due_date=d.get("due_date"), status=status,
+                   source_subject=d.get("subject") or "")
+    await asyncio.to_thread(_add_bill, bill)
+    node = f"{approval.agent_id}.act"
+    await _ev(approval.run_id, "agent_spawned", node, approval.agent_id, role="action",
+              goal=f"{'Paid' if status == 'paid' else 'Tracked'}: {bill.payee} {bill.amount}".strip(),
+              depth=99, status="done")
+    await _ev(approval.run_id, "agent_finished", node, result="Added to the bills tracker", confidence=1.0)
+    await _ev(approval.run_id, "bill_tracked", node, bill_id=bill.id, payee=bill.payee, amount=bill.amount,
+              due_date=bill.due_date, status=status, subject=bill.source_subject)
+
+
+# ---------- notifications that reach you with the tab closed ----------
+
+
+async def _notify(w: WatchRow, title: str, message: str) -> None:
+    """Optional phone push through ntfy.sh (configured in the vault as 'notify'). The topic name
+    is the only protection on ntfy, so it's kept in the vault like a password."""
+    import httpx
+
+    cfg = await vault.get("notify")
+    topic = (cfg or {}).get("ntfy_topic")
+    if not topic:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.post(f"https://ntfy.sh/{topic}", content=message.encode(),
+                             headers={"Title": title[:120].encode("ascii", "ignore").decode() or "Banyan",
+                                      "Tags": "bell"})
+        await _ev(w.run_id, "notified", w.agent_id, channel="ntfy", ok=r.status_code < 300)
+    except Exception as e:
+        await _ev(w.run_id, "log", w.agent_id, message=f"Push notification failed: {e}"[:200])
 
 
 def _get(watch_id: str) -> WatchRow | None:

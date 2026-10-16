@@ -56,6 +56,44 @@ function Card({ a }: { a: Approval }) {
   );
 }
 
+function Bills() {
+  const bills = useBanyan((s) => s.bills);
+  if (bills.length === 0) return null;
+  const num = (a: string) => Number(a.replace(/[^\d.]/g, "")) || 0;
+  const due = bills.filter((b) => b.status === "due");
+  const currency = (bills[0].amount.match(/^[^\d\s]+/) ?? ["PKR"])[0];
+  return (
+    <div className="mb-4">
+      <h2 className="mb-2 flex justify-between text-xs font-semibold uppercase tracking-wide text-emerald-300">
+        <span>📒 Bills tracker</span>
+        <span>{due.length} due · {currency} {due.reduce((s, b) => s + num(b.amount), 0).toLocaleString()}</span>
+      </h2>
+      <div className="space-y-1">
+        {bills.map((b) => (
+          <div key={b.id} className="flex justify-between rounded bg-slate-900 px-2 py-1.5 text-xs">
+            <span className="truncate">{b.payee}{b.dueDate && <span className="text-slate-500"> · due {b.dueDate}</span>}</span>
+            <span className={b.status === "paid" ? "text-emerald-400" : "text-amber-300"}>
+              {b.amount} {b.status === "paid" ? "✓ paid" : "due"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NotifyToggle() {
+  const watching = useBanyan((s) => Object.values(s.nodes).some((n) => n.role === "watcher" && n.status === "watching"));
+  const [perm, setPerm] = useState(() => (typeof Notification === "undefined" ? "denied" : Notification.permission));
+  if (!watching || perm !== "default") return null;
+  return (
+    <button onClick={() => Notification.requestPermission().then(setPerm)}
+      className="mb-3 w-full rounded border border-cyan-900 px-2 py-1.5 text-xs text-cyan-200 hover:bg-cyan-950">
+      🔔 Show desktop notifications for alerts
+    </button>
+  );
+}
+
 function Alerts() {
   const alerts = useBanyan((s) => s.alerts);
   const dismissed = useBanyan((s) => s.dismissed);
@@ -89,7 +127,9 @@ export default function ApprovalInbox() {
   const pending = Object.values(approvals).filter((a) => a.status === "pending");
   return (
     <aside className="w-96 shrink-0 overflow-y-auto border-l border-slate-800 p-3">
+      <NotifyToggle />
       <Alerts />
+      <Bills />
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
         Approval inbox ({pending.length})
       </h2>

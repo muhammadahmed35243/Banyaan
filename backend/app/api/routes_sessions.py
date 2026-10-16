@@ -1,14 +1,15 @@
 """Sessions (many goals side by side), watcher ticks, the vault and the demo inbox."""
 import asyncio
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from .. import store, vault, watchers
+from ..config import settings
 from ..db import engine
 from ..events import bus
-from ..models import DemoEmail, SessionRun, WatchRow
+from ..models import BillRow, DemoEmail, SessionRun, WatchRow
 
 router = APIRouter(prefix="/api")
 
@@ -38,6 +39,26 @@ async def tick(session_id: str) -> dict:
     return await watchers.tick(session_id)
 
 
+@router.api_route("/watches/tick_all", methods=["GET", "POST"])
+async def tick_all(authorization: str | None = Header(default=None)) -> dict:
+    """Wake every watcher, even with no browser open. Called by Vercel Cron (GET, sends
+    'Authorization: Bearer $CRON_SECRET') and by the GitHub Actions schedule."""
+    if not settings.cron_secret or authorization != f"Bearer {settings.cron_secret}":
+        raise HTTPException(401, "bad or missing cron secret")
+    return await watchers.tick(None)
+
+
+def _bills(session_id: str) -> list[BillRow]:
+    with Session(engine) as s:
+        return list(s.exec(select(BillRow).where(BillRow.session_id == session_id)
+                           .order_by(BillRow.created_at)).all())
+
+
+@router.get("/sessions/{session_id}/bills")
+async def list_bills(session_id: str) -> list[dict]:
+    return [b.model_dump(mode="json") for b in await asyncio.to_thread(_bills, session_id)]
+
+
 def _watches(session_id: str) -> list[WatchRow]:
     with Session(engine) as s:
         return list(s.exec(select(WatchRow).where(WatchRow.session_id == session_id)).all())
@@ -56,6 +77,22 @@ class CredentialIn(BaseModel):
     email: str | None = None
     app_password: str | None = None
     host: str | None = None
+    ntfy_topic: str | None = None  # optional phone push channel
+
+
+async def _save_ntfy(topic: str | None) -> None:
+    if topic and topic.strip():
+        await vault.put("notify", {"ntfy_topic": topic.strip()}, "ntfy phone push")
+
+
+class NotifyIn(BaseModel):
+    ntfy_topic: str
+
+
+@router.post("/vault/notify")
+async def set_notify(body: NotifyIn) -> dict:
+    await _save_ntfy(body.ntfy_topic)
+    return {"ok": True}
 
 
 @router.post("/approvals/{approval_id}/credential")
@@ -78,6 +115,7 @@ async def provide_credential(approval_id: str, body: CredentialIn) -> dict:
         await vault.put(name, secret, body.email.strip())
     else:
         raise HTTPException(400, "mode must be imap or demo")
+    await _save_ntfy(body.ntfy_topic)
     row = await store.decide(approval_id, "approved", "credential provided", None)
     if not row:
         raise HTTPException(409, "already decided")
@@ -88,7 +126,7 @@ async def provide_credential(approval_id: str, body: CredentialIn) -> dict:
 async def vault_list() -> list[dict]:
     """Names and labels only. Values never leave the server."""
     out = []
-    for n in ("gmail",):
+    for n in ("gmail", "notify"):
         i = await vault.info(n)
         if i:
             out.append(i)

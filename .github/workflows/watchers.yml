@@ -1,0 +1,19 @@
+# Wakes Banyan's watcher agents every 5 minutes, so alerts (and phone pushes) happen even
+# with no browser tab open. Vercel's free cron only runs once a day; this fills the gap.
+# Needs the repository secret CRON_SECRET (same value as the backend's CRON_SECRET).
+name: Tick watchers
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"  # GitHub may delay scheduled runs by a few minutes
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Tick all watchers
+        run: |
+          curl -fsS -X POST https://banyan-backend.vercel.app/api/watches/tick_all \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" --max-time 240

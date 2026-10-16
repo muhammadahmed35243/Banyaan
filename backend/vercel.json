@@ -1,4 +1,5 @@
 {
   "regions": ["hnd1"],
-  "functions": { "index.py": { "maxDuration": 300 } }
+  "functions": { "index.py": { "maxDuration": 300 } },
+  "crons": [{ "path": "/api/watches/tick_all", "schedule": "0 8 * * *" }]
 }

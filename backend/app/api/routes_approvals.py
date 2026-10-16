@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import store, vault
+from .. import store, vault, watchers
 
 router = APIRouter(prefix="/api/approvals")
 
@@ -42,4 +42,6 @@ async def decide(approval_id: str, body: DecideIn) -> dict:
     row = await store.decide(approval_id, body.decision, body.note, body.edited_payload)
     if not row:
         raise HTTPException(409, "already decided")
+    if row.kind == "watch_action":  # nobody is waiting on this one: run the approved action now
+        await watchers.execute_action(row)
     return _out(row)

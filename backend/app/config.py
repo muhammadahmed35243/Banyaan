@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     sandbox_timeout_sec: float = 20
     vault_key: str = ""  # encrypts the secrets vault; set it in production
     watch_interval_sec: int = 15  # minimum gap between two checks of one watcher
+    cron_secret: str = ""  # required by /api/watches/tick_all (Vercel cron / GitHub Actions)
 
     @property
     def provider(self) -> str:

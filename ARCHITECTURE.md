@@ -55,6 +55,33 @@ recognises this (`standing_watch`) and spawns a **Watcher** agent (`app/watchers
 For demos, **📨 Simulate email** drops a payment bill, a receipt, a newsletter or a personal
 note into the demo inbox. Only the payment ones should alert.
 
+**Watcher actions.** For each match the Watcher also *proposes* a follow-up: `track_bill` (a
+bill still to pay) or `mark_paid` (a receipt). It is a normal approval card; nothing happens
+until a human approves. Approving adds the entry to the **📒 Bills tracker** (`bills` table,
+`bill_tracked` event) and grows a child node under the alert.
+
+**Alerts with no tab open.** `GET|POST /api/watches/tick_all` wakes every watcher in every
+session; it requires `Authorization: Bearer $CRON_SECRET`. Two callers:
+- `.github/workflows/watchers.yml`: GitHub Actions every 5 minutes (repo secret `CRON_SECRET`;
+  GitHub may delay scheduled runs).
+- `backend/vercel.json` cron: once a day (the Vercel Hobby limit), as a fallback.
+Alerts found this way are stored as events and appear when the session is opened. To be told
+right away, add an **ntfy topic** on the credential card: each alert is pushed to your phone
+via ntfy.sh (the topic name is kept in the vault, since it is the only protection on ntfy).
+With the tab open in the background, the browser can also show **desktop notifications**.
+
+## 1d. System Map and Timeline
+
+The centre panel switches between three views, all derived from the same event stream:
+- **🌳 Agent tree:** the recursive trees, one per goal.
+- **🛰️ System map:** the fixed components (You, Orchestrator, Agents, LLM, SerpAPI, Web, Tool
+  Registry, Sandbox, Vault, Email inbox, Database, Phone). Each event is mapped to the edge it
+  travels (`flowsFor` in `store/useBanyan.ts`) and a particle runs along it; gold particles
+  mean a secret was used by a connector. Edge numbers count messages so far.
+- **📊 Timeline:** one lane per agent on a shared time axis, coloured by status, with ▲ for
+  tool calls and 🔔 for alerts. Overlapping bars show parallelism ("up to N at once").
+  Filters: human moments only, last 2 minutes.
+
 ## 2. How they coordinate
 
 Example: "Compare the price of a MacBook Air at 3 Pakistani stores".
@@ -160,8 +187,8 @@ MOCK_LLM=1 .venv/Scripts/python -m uvicorn  # e2e suites need mock mode app.main
 
 ## 8. Not built yet
 
-Google OAuth (the vault + Gmail via app password are built), sending real email, System Map /
-Swimlanes (Phase 5), voice (Phase 6), alerts while no tab is open (needs a cron on the tick),
+Google OAuth (the vault + Gmail via app password are built), sending real email, Tool Library
+lineage graph, voice (Phase 6),
 self-repair, explain/replay modes, scheduling (Phase 7). Verified with real Gemini: planning,
 parallel researchers with live SerpAPI, analyst, synthesis, and a real Toolsmith build
 (Builder retried after failing tests). Free-tier Gemini is slow (a 3-store comparison takes

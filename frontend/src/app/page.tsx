@@ -1,11 +1,13 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ApprovalInbox from "@/components/ApprovalInbox";
 import NodeDetails from "@/components/NodeDetails";
 import AgentTree from "@/components/AgentTree";
 import GoalInput from "@/components/GoalInput";
+import SystemMap from "@/components/SystemMap";
+import Swimlanes from "@/components/Swimlanes";
 import { connectSession } from "@/lib/ws";
 import { newId } from "@/lib/ids";
 import { useBanyan } from "@/store/useBanyan";
@@ -13,6 +15,7 @@ import { useBanyan } from "@/store/useBanyan";
 function MissionControl() {
   const router = useRouter();
   const sessionId = useSearchParams().get("session");
+  const [view, setView] = useState<"tree" | "map" | "timeline">("tree");
 
   // The session id lives in the URL: every goal typed here joins it and runs side by side,
   // and a refresh replays the whole session from stored events.
@@ -31,7 +34,17 @@ function MissionControl() {
       <GoalInput sessionId={sessionId} onNewSession={() => router.push(`/?session=${newId()}`)} />
       <div className="flex min-h-0 flex-1">
         <main className="flex min-w-0 flex-1 flex-col">
-          <div className="flex-1"><AgentTree /></div>
+          <div className="flex gap-1 border-b border-slate-800 px-4 py-1.5 text-xs">
+            {(["tree", "map", "timeline"] as const).map((v) => (
+              <button key={v} onClick={() => setView(v)}
+                className={`rounded px-3 py-1 ${view === v ? "bg-slate-800 text-slate-100" : "text-slate-400 hover:text-slate-200"}`}>
+                {v === "tree" ? "🌳 Agent tree" : v === "map" ? "🛰️ System map" : "📊 Timeline"}
+              </button>
+            ))}
+          </div>
+          <div className="min-h-0 flex-1">
+            {view === "tree" ? <AgentTree /> : view === "map" ? <SystemMap /> : <Swimlanes />}
+          </div>
           <NodeDetails />
         </main>
         <ApprovalInbox />

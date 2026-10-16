@@ -28,7 +28,9 @@ export default function WatchSetupCard({ a }: { a: Approval }) {
     setBusy(false);
     if (!r || !r.ok) setErr((await r?.json().catch(() => ({})))?.detail ?? "Failed");
   };
-  const credential = (body: object) => post(`/api/approvals/${a.id}/credential`, body);
+  const [topic, setTopic] = useState("");
+  const credential = (body: object) =>
+    post(`/api/approvals/${a.id}/credential`, { ...body, ntfy_topic: topic || undefined });
 
   const input = "mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs";
   return (
@@ -57,6 +59,11 @@ export default function WatchSetupCard({ a }: { a: Approval }) {
           placeholder="Gmail app password (16 letters)" className={input} />
         <div className="mt-1 text-[10px] text-slate-500">
           Google Account → Security → 2-Step Verification → App passwords.
+        </div>
+        <input value={topic} onChange={(e) => setTopic(e.target.value)} autoComplete="off"
+          name={`watch-ntfy-${a.id}`} placeholder="Optional: ntfy topic for phone alerts (tab closed)" className={input} />
+        <div className="mt-1 text-[10px] text-slate-500">
+          Install the ntfy app, subscribe to a long random topic name, paste it here. Alert text is sent via ntfy.sh.
         </div>
         <div className="mt-2 flex flex-wrap gap-2">
           <button disabled={busy || !email || !pw} className="rounded bg-emerald-600 px-2 py-1 text-xs hover:bg-emerald-500 disabled:opacity-40">

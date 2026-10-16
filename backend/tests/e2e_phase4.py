@@ -85,6 +85,18 @@ check("newsletter does not alert", got and all("newsletter" not in a["payload"][
                                                "AI" not in a["payload"]["subject"] for a in got))
 check("alert has the amount", got and "14,250" in str(got[0]["payload"].get("amount")))
 
+# 3b. The watcher proposes a follow-up; nothing happens until a human approves it.
+prop = wait(lambda: next((a for a in c.get(f"/api/approvals?status=pending&run_id={w_rid}").json()
+                          if a["kind"] == "watch_action"), None), 20)
+check("watcher proposes an action", prop is not None and prop["details"]["action"] == "track_bill", str(prop)[:200])
+check("no bill before approval", c.get(f"/api/sessions/{sid}/bills").json() == [])
+if prop:
+    c.post(f"/api/approvals/{prop['id']}/decide", json={"decision": "approved", "confirm": True})
+bills = c.get(f"/api/sessions/{sid}/bills").json()
+check("approved action adds the bill", len(bills) == 1 and bills[0]["status"] == "due", str(bills))
+check("bill_tracked event emitted", any(e["type"] == "bill_tracked" for e in events()))
+check("cron endpoint refuses without the secret", c.post("/api/watches/tick_all").status_code == 401)
+
 # 4. The watcher is controllable like any agent.
 c.post(f"/api/agents/{watcher}/control", json={"action": "pause"})
 c.post("/api/demo/emails", json={"preset": "receipt"})

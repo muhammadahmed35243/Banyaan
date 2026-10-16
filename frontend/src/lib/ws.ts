@@ -2,6 +2,15 @@ import { API_URL } from "./config";
 import { useBanyan, type BanyanEvent } from "@/store/useBanyan";
 
 const POLL_MS = 600;
+
+/** OS notification for a live alert (only if the user allowed it), useful when the tab is in the background. */
+function desktopNotify(e: BanyanEvent) {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  const p = e.payload;
+  new Notification(`🔔 ${String(p.subject ?? "Banyan alert")}`, {
+    body: `${String(p.summary ?? "")}${p.amount ? ` (${String(p.amount)})` : ""}`, tag: e.id,
+  });
+}
 const TICK_MS = 5000;
 
 /**
@@ -21,7 +30,12 @@ export function connectSession(sessionId: string): () => void {
       const r = await fetch(`${API_URL}/api/sessions/${sessionId}/events?after=${cursor}`);
       const data = (await r.json()) as { events: BanyanEvent[]; cursor: number };
       cursor = data.cursor;
-      data.events.forEach((e) => useBanyan.getState().applyEvent(e));
+      const { live, applyEvent, setLive } = useBanyan.getState();
+      data.events.forEach((e) => {
+        applyEvent(e);
+        if (live && e.type === "alert") desktopNotify(e);
+      });
+      if (!live) setLive(); // the first batch was history; from now on events are live
     } catch (err) {
       console.error("poll failed", err);
     }

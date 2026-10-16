@@ -17,7 +17,7 @@ EventType = Literal[
     "secret_requested", "secret_used",
     "budget_warning", "speak",
     "system_flow",
-    "alert", "watch_started", "watch_stopped",
+    "alert", "watch_started", "watch_stopped", "bill_tracked", "notified",
     "log",
 ]
 
@@ -152,6 +152,21 @@ class WatchRow(SQLModel, table=True):
     checks: int = 0
     alerts: int = 0
     last_tick_at: datetime | None = None
+    created_at: datetime = SQLField(default_factory=_now)
+
+
+class BillRow(SQLModel, table=True):
+    """The bills tracker a watcher fills, one human-approved entry at a time."""
+
+    __tablename__ = "bills"
+
+    id: str = SQLField(primary_key=True)
+    session_id: str = SQLField(index=True)
+    payee: str = ""
+    amount: str = ""
+    due_date: str | None = None
+    status: str = "due"  # due | paid
+    source_subject: str = ""
     created_at: datetime = SQLField(default_factory=_now)
 
 
