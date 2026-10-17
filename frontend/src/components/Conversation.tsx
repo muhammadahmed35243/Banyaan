@@ -19,6 +19,14 @@ export default function Conversation({ sessionId }: { sessionId: string }) {
   const lastResult = list[list.length - 1]?.result;
 
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [list.length, lastResult]);
+  // A ticking clock while something runs, so "still working" is visibly alive.
+  const anyRunning = list.some((r) => r.status === "running");
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!anyRunning) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [anyRunning]);
 
   return (
     <aside className="flex w-[34%] min-w-[22rem] max-w-[36rem] shrink-0 flex-col border-r border-slate-800">
@@ -34,17 +42,22 @@ export default function Conversation({ sessionId }: { sessionId: string }) {
           const working = mine.filter((n) => ACTIVE.includes(n.status));
           const waiting = mine.filter((n) => n.status === "waiting_human").length;
           const watcher = mine.find((n) => n.role === "watcher" && n.status === "watching");
+          const secs = Math.max(0, Math.round((now - r.startedAt) / 1000));
+          // The server stops a goal at ~270s; past 6 minutes with no answer, its request was lost.
+          const lost = r.status === "running" && secs > 360 && waiting === 0;
           return (
             <div key={r.id} className="space-y-2">
               <div className="ml-10 rounded-2xl rounded-tr-sm bg-emerald-700/40 px-3 py-2 text-sm text-emerald-50">{r.goal}</div>
               <div className="mr-4 rounded-2xl rounded-tl-sm border border-slate-800 bg-slate-900 px-3 py-2">
                 {r.result ? (
                   <Markdown text={r.result} />
+                ) : lost ? (
+                  <p className="text-sm text-amber-300">This goal stopped without an answer (the server request was cut off). Ask again.</p>
                 ) : r.status === "finished" ? (
                   <p className="text-sm text-red-300">This goal did not finish (a branch failed or was rejected). Click a red node for details.</p>
                 ) : (
                   <div className="text-xs text-slate-400">
-                    <span className="animate-pulse">●</span> {working.length} agent{working.length === 1 ? "" : "s"} working
+                    <span className="animate-pulse">●</span> {working.length} agent{working.length === 1 ? "" : "s"} working · {secs}s
                     {waiting > 0 && <span className="text-purple-300"> · {waiting} waiting for you →</span>}
                     <ul className="mt-1 space-y-0.5">
                       {working.slice(0, 6).map((n) => (

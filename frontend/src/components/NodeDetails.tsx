@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { API_URL } from "@/lib/config";
 import { useBanyan } from "@/store/useBanyan";
+import Markdown from "./Markdown";
 
 export default function NodeDetails() {
   const node = useBanyan((s) => (s.selectedId ? s.nodes[s.selectedId] : null));
@@ -29,7 +30,9 @@ export default function NodeDetails() {
             {node.confidence !== null && ` · ${(node.confidence * 100).toFixed(0)}% confident`}
           </div>
           <div className="mt-1 font-medium">{node.goal}</div>
-          {node.result && <p className="mt-1 max-w-3xl text-xs text-slate-300">{node.result}</p>}
+          {node.result && (
+            <div className="mt-1 max-h-64 max-w-3xl overflow-y-auto pr-2"><Markdown text={node.result} /></div>
+          )}
         </div>
         <button onClick={() => select(null)} className="text-slate-500 hover:text-slate-300">✕</button>
       </div>

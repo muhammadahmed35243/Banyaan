@@ -1,0 +1,36 @@
+# Run Banyan anywhere Docker runs:
+#   cp .env.example .env   # fill in keys
+#   docker compose up --build
+# UI: http://localhost:3000   API: http://localhost:8000/health
+# On a server, set BACKEND_URL / FRONTEND_ORIGIN in .env to the public addresses and rebuild
+# (the UI bakes the API address in at build time).
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Empty DATABASE_URL in .env falls back to SQLite on the volume below.
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/banyan.db}
+      BACKEND_URL: ${BACKEND_URL:-http://localhost:8000}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+    ports:
+      - "8000:8000"
+    volumes:
+      - banyan-data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${BACKEND_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  banyan-data:

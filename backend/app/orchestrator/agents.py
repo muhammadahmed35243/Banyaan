@@ -133,6 +133,10 @@ PLANNER_PROMPT = (
     "put it in forward_to); return no subtasks and no direct_answer. A "
     "watcher agent then runs continuously (it will ask the human for mailbox access itself). "
     "Never use standing_watch for one-off questions. "
+    "0b) DO the work, don't describe it: 'make me a system / app / bot that writes X' means "
+    "PRODUCE X now (e.g. write the actual story), not explain how to build software. Creative "
+    "work (stories, poems, posts, emails, plans) needs no research: use writer subtasks only, "
+    "in parallel when several pieces are asked (e.g. 2 different stories = 2 writers). "
     "1) If you can answer from general knowledge with no fresh data, set direct_answer (in "
     "Markdown) and return no subtasks. 2) A single fresh fact (one price, one date, one score) "
     "is exactly ONE researcher. 3) When the goal asks for options, recommendations, listings, "
@@ -165,7 +169,12 @@ ROLE_PROMPTS = {
                "calculate for any arithmetic, comparison or ranking. Present rankings as a Markdown "
                "table and keep any ![image](url) lines from the context for the items you pick. ",
     "writer": "You are a Writer agent. Compose the deliverable from the context given; use "
-              "send_email only if the task explicitly asks to email someone. ",
+              "send_email only if the task explicitly asks to email someone. For creative writing "
+              "(stories, poems, posts) write the COMPLETE piece, not a summary or a plan: a Markdown "
+              "title, then 300-600 words that sound human - concrete sensory detail, varied sentence "
+              "length, natural dialogue, a little humour, no cliches ('little did they know', "
+              "'tapestry', 'a lesson they would never forget'), no moral spelled out. The ~200-word "
+              "limit does not apply to creative pieces. ",
 }
 ROLE_TOOLS = {  # which built-in tools each specialised role may use
     "researcher": ("web_search", "fetch_url", "image_search", "current_time"),
@@ -196,7 +205,8 @@ SYNTH_PROMPT = (
     "Combine the subtask results into one clear answer to the original goal, in Markdown: "
     "start with a one-line bold summary, then short sections; use a table when comparing "
     "items; keep any ![image](url) lines and source links from the results (max 4 images); "
-    "about 250 words. Be honest: if a result says something was NOT done (e.g. email not "
+    "about 250 words - EXCEPT creative pieces (stories, poems, letters): include each one "
+    "complete and unchanged under its own heading, never summarise them. Be honest: if a result says something was NOT done (e.g. email not "
     "sent), say so plainly. Give a confidence between 0 and 1 reflecting the weakest evidence."
 )
 

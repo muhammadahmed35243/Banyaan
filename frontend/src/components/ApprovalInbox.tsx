@@ -6,6 +6,7 @@ import { useBanyan, type Approval } from "@/store/useBanyan";
 import NewToolCard from "./NewToolCard";
 import WatchSetupCard from "./WatchSetupCard";
 import ConnectGoogleCard from "./ConnectGoogleCard";
+import Markdown from "./Markdown";
 
 function Card({ a }: { a: Approval }) {
   const [note, setNote] = useState("");
@@ -44,7 +45,7 @@ function Card({ a }: { a: Approval }) {
         </div>
       )}
       {a.details.result !== undefined && !editing && (
-        <p className="mt-2 rounded bg-slate-950 p-2 text-xs text-slate-300">{String(a.details.result)}</p>
+        <div className="mt-2 max-h-56 overflow-y-auto rounded bg-slate-950 p-2"><Markdown text={String(a.details.result)} /></div>
       )}
       {editing && (
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3}

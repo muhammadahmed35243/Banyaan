@@ -9,10 +9,29 @@ from .config import settings
 from .db import init_db
 
 
+async def _ticker() -> None:
+    import asyncio
+    import logging
+
+    from . import watchers
+
+    while True:
+        try:
+            await watchers.tick(None)
+        except Exception:  # a bad tick must not stop the loop
+            logging.exception("watcher tick failed")
+        await asyncio.sleep(max(5, settings.watch_interval_sec))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
+
     init_db()
+    task = asyncio.create_task(_ticker()) if settings.background_ticker else None
     yield
+    if task:
+        task.cancel()
 
 
 app = FastAPI(title="Banyan", lifespan=lifespan)

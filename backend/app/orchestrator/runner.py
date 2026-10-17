@@ -279,6 +279,37 @@ async def run_goal(run_id: str, goal: str, session_id: str | None = None, llm: L
     history = await asyncio.to_thread(_session_history, session_id, run_id) if session_id else ""
     ctx = Ctx(run_id, llm or get_llm(), asyncio.Semaphore(settings.max_parallel_agents), session_id, history)
     await emit(ctx, "run_started", goal=goal, mock=type(ctx.llm).__name__ == "MockLLM")
-    result = await run_node(ctx, f"{run_id}-root", None, goal, 0, plan_first=True)
+    try:
+        result = await asyncio.wait_for(run_node(ctx, f"{run_id}-root", None, goal, 0, plan_first=True),
+                                        settings.run_time_budget_sec)
+    except asyncio.TimeoutError:
+        result = await _time_up(ctx)
+        if result is None:
+            return None  # a watcher is waiting for inbox access; its decision finishes the goal
     await emit(ctx, "run_finished", result=result)
     return result
+
+
+async def _time_up(ctx: Ctx) -> str | None:
+    """The goal hit the server's time limit (often: a card waited too long for a human).
+    Close what is still open and answer with whatever finished, instead of hanging forever."""
+    pending = await store.list_approvals("pending", ctx.run_id)
+    if any(a.kind == "watch_setup" for a in pending):
+        return None
+    for a in pending:  # nobody waits on these any more
+        await store.decide(a.id, "rejected", "timed out: nobody answered in time", None)
+        await emit(ctx, "human_decision", None, approval_id=a.id, decision="rejected", note="timed out")
+    done: list[str] = []
+    for row in await store.run_agents(ctx.run_id):
+        node = Node(row.id, row.parent_id, row.depth, row.goal, role=row.role)
+        if row.status in ("done", "failed", "pruned", "watching"):
+            continue
+        await store.set_agent(row.id, status="failed")
+        await emit(ctx, "agent_failed", node, error="Stopped: the server time limit was reached")
+    for e in await asyncio.to_thread(bus.since, ctx.run_id):
+        if e["type"] == "agent_finished" and e["payload"].get("result") and e["agent_id"] != f"{ctx.run_id}-root":
+            done.append(str(e["payload"]["result"]))
+    head = "**⏱ Time limit reached before everything finished.**"
+    if not done:
+        return head + " Nothing finished in time. Try a smaller goal, or answer approval cards sooner."
+    return head + " Here is what did finish:\n\n" + "\n\n---\n\n".join(done[-4:])
