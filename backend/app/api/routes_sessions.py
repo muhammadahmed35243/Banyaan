@@ -26,6 +26,49 @@ async def link_run(session_id: str | None, run_id: str, goal: str) -> None:
         await asyncio.to_thread(_link, session_id, run_id, goal)
 
 
+def _sessions(limit: int) -> list[dict]:
+    from sqlalchemy import func
+
+    from ..models import AgentRow, ApprovalRow
+
+    with Session(engine) as s:
+        rows = s.exec(select(SessionRun.session_id, func.count(), func.min(SessionRun.created_at),
+                             func.max(SessionRun.created_at))
+                      .group_by(SessionRun.session_id)
+                      .order_by(func.max(SessionRun.created_at).desc()).limit(limit)).all()
+        ids = [r[0] for r in rows]
+        if not ids:
+            return []
+        runs = s.exec(select(SessionRun).where(SessionRun.session_id.in_(ids))
+                      .order_by(SessionRun.created_at)).all()
+        session_of = {r.run_id: r.session_id for r in runs}
+        goals: dict[str, list[str]] = {}
+        for r in runs:
+            goals.setdefault(r.session_id, []).append(r.goal)
+        agents: dict[str, int] = {}
+        for run_id, n in s.exec(select(AgentRow.run_id, func.count()).where(AgentRow.run_id.in_(session_of))
+                                .group_by(AgentRow.run_id)).all():
+            agents[session_of[run_id]] = agents.get(session_of[run_id], 0) + n
+        pending: dict[str, int] = {}
+        for run_id in s.exec(select(ApprovalRow.run_id).where(ApprovalRow.run_id.in_(session_of),
+                                                                ApprovalRow.status == "pending")).all():
+            pending[session_of[run_id]] = pending.get(session_of[run_id], 0) + 1
+        watching: dict[str, int] = {}
+        for sid in s.exec(select(WatchRow.session_id).where(WatchRow.session_id.in_(ids),
+                                                               WatchRow.status == "active")).all():
+            watching[sid] = watching.get(sid, 0) + 1
+    return [{"id": sid, "goals": n, "first_goal": goals[sid][0], "last_goal": goals[sid][-1],
+             "recent_goals": goals[sid][-3:], "agents": agents.get(sid, 0), "pending": pending.get(sid, 0),
+             "watching": watching.get(sid, 0), "started_at": first.isoformat(), "last_at": last.isoformat()}
+            for sid, n, first, last in rows]
+
+
+@router.get("/sessions")
+async def list_sessions(limit: int = 60) -> list[dict]:
+    """Every session, most recent first, with a short summary for the sessions page."""
+    return await asyncio.to_thread(_sessions, min(limit, 200))
+
+
 @router.get("/sessions/{session_id}/events")
 async def session_events(session_id: str, after: int = 0) -> dict:
     events = await asyncio.to_thread(bus.since_session, session_id, after)

@@ -57,3 +57,11 @@ app.include_router(routes_auth.router)
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True}
+
+
+# Single-container deploys (root Dockerfile): the UI is a static export served from here, so
+# UI and API share one origin. Mounted last, so every API route above takes precedence.
+if settings.static_dir:
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=settings.static_dir, html=True), name="ui")

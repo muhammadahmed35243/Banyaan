@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # On a long-running server (Docker) the API wakes watchers itself, so alerts arrive with
     # every tab closed. Off on Vercel, where the browser / cron send the ticks.
     background_ticker: bool = False
+    static_dir: str = ""  # serve the exported UI from this folder (single-container deploy)
     cron_secret: str = ""  # required by /api/watches/tick_all (Vercel cron / GitHub Actions)
     google_client_id: str = ""  # Google sign-in for Gmail (OAuth web client)
     google_client_secret: str = ""

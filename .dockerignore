@@ -1,0 +1,14 @@
+**/.env
+**/.env.*
+!**/.env.example
+**/.venv
+**/node_modules
+**/.next
+frontend/out
+**/*.db
+**/__pycache__
+**/.pytest_cache
+**/.vercel
+backend/tests
+.git
+.github

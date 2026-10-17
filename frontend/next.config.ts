@@ -1,10 +1,15 @@
 import type { NextConfig } from "next";
 
+const staticExport = process.env.NEXT_OUTPUT === "export";
+
 const nextConfig: NextConfig = {
-  // The Docker image runs Next's self-contained server; Vercel builds don't need it.
-  output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Docker builds: "standalone" (own Node server) or "export" (static files served by the API,
+  // see the root Dockerfile). Vercel builds set neither.
+  output: process.env.NEXT_OUTPUT === "standalone" || process.env.NEXT_OUTPUT === "export"
+    ? process.env.NEXT_OUTPUT : undefined,
+  // Partial prerendering can't run in a static export.
+  cacheComponents: !staticExport,
+  partialPrefetching: !staticExport,
   turbopack: {
     rules: {
       "*.css": {
