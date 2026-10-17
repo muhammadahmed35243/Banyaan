@@ -2,7 +2,7 @@
 request it is running) stays put. The token goes straight into the vault."""
 import html
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import store, vault, watchers
@@ -18,13 +18,14 @@ async def config() -> dict:
 
 
 @router.get("/start")
-async def start(approval_id: str | None = None, service: str | None = None) -> RedirectResponse:
+async def start(request: Request, approval_id: str | None = None, service: str | None = None) -> RedirectResponse:
     """`service` (e.g. google_classroom) adds that service's read-only scopes to the sign-in."""
     if not google.enabled():
         raise HTTPException(404, "Google sign-in is not configured")
     extra = (services.KNOWN.get(service) or {}).get("scopes", []) if service else []
-    state = google.sign_state({"approval_id": approval_id, "service": service})
-    return RedirectResponse(google.auth_url(state, extra))
+    base = google.public_base(request)
+    state = google.sign_state({"approval_id": approval_id, "service": service, "base": base})
+    return RedirectResponse(google.auth_url(state, extra, base))
 
 
 def _page(ok: bool, text: str) -> HTMLResponse:
@@ -40,14 +41,16 @@ setTimeout(function(){{window.close()}},1800)</script></body>""")
 
 
 @router.get("/callback")
-async def callback(code: str | None = None, state: str | None = None, error: str | None = None) -> HTMLResponse:
+async def callback(request: Request, code: str | None = None, state: str | None = None,
+                   error: str | None = None) -> HTMLResponse:
     if error:
         return _page(False, f"Google sign-in was cancelled ({error}).")
     data = google.verify_state(state or "")
     if not data or not code:
         return _page(False, "This sign-in link is invalid or expired. Try again.")
     try:
-        tok = google.exchange_code(code)
+        # The same redirect_uri as the sign-in started with (Google requires an exact match).
+        tok = google.exchange_code(code, data.get("base") or google.public_base(request))
     except Exception as e:
         return _page(False, f"Sign-in failed: {e}")
     await vault.put("google", tok, tok["email"])

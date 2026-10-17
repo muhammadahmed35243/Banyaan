@@ -26,8 +26,20 @@ def enabled() -> bool:
     return bool(settings.google_client_id and settings.google_client_secret)
 
 
-def redirect_uri() -> str:
-    return settings.backend_url.rstrip("/") + "/api/auth/google/callback"
+def public_base(request=None) -> str:
+    """This API's public address. BACKEND_URL when it is set to a real host; otherwise taken from
+    the incoming request (behind a proxy, uvicorn --proxy-headers gives the public scheme/host),
+    so sign-in works on any host (Vercel, Clouds, a VPS) without extra config."""
+    configured = settings.backend_url.rstrip("/")
+    if request is None or ("localhost" not in configured and "127.0.0.1" not in configured):
+        return configured
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc)).split(",")[0].strip()
+    return f"{proto}://{host}"
+
+
+def redirect_uri(base: str | None = None) -> str:
+    return (base or settings.backend_url).rstrip("/") + "/api/auth/google/callback"
 
 
 # ---------- state: signed, short-lived, so a callback can't be forged or replayed later ----------
@@ -53,20 +65,20 @@ def verify_state(state: str) -> dict | None:
         return None
 
 
-def auth_url(state: str, extra_scopes: list[str] | None = None) -> str:
+def auth_url(state: str, extra_scopes: list[str] | None = None, base: str | None = None) -> str:
     # include_granted_scopes: adding Classroom keeps the Gmail access granted earlier.
     return AUTH_URL + "?" + urlencode({
-        "client_id": settings.google_client_id, "redirect_uri": redirect_uri(), "response_type": "code",
+        "client_id": settings.google_client_id, "redirect_uri": redirect_uri(base), "response_type": "code",
         "scope": " ".join(SCOPES + list(extra_scopes or [])), "access_type": "offline", "prompt": "consent",
         "include_granted_scopes": "true", "state": state,
     })
 
 
-def exchange_code(code: str) -> dict:
+def exchange_code(code: str, base: str | None = None) -> dict:
     """-> {refresh_token, email}"""
     r = httpx.post(TOKEN_URL, data={
         "code": code, "client_id": settings.google_client_id, "client_secret": settings.google_client_secret,
-        "redirect_uri": redirect_uri(), "grant_type": "authorization_code"}, timeout=20)
+        "redirect_uri": redirect_uri(base), "grant_type": "authorization_code"}, timeout=20)
     r.raise_for_status()
     tok = r.json()
     if not tok.get("refresh_token"):
