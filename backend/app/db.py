@@ -14,7 +14,9 @@ else:
 
 
 # Columns added after a table first shipped (create_all never alters an existing table).
-_ADDED_COLUMNS = [("watches", "forward_to", "VARCHAR")]
+_ADDED_COLUMNS = [("watches", "forward_to", "VARCHAR"), ("watches", "service", "VARCHAR"),
+                  ("watches", "request", "VARCHAR"), ("watches", "seen", "JSON"),
+                  ("watches", "interval_sec", "INTEGER")]
 
 
 def init_db() -> None:

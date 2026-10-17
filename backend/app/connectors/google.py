@@ -53,10 +53,12 @@ def verify_state(state: str) -> dict | None:
         return None
 
 
-def auth_url(state: str) -> str:
+def auth_url(state: str, extra_scopes: list[str] | None = None) -> str:
+    # include_granted_scopes: adding Classroom keeps the Gmail access granted earlier.
     return AUTH_URL + "?" + urlencode({
         "client_id": settings.google_client_id, "redirect_uri": redirect_uri(), "response_type": "code",
-        "scope": " ".join(SCOPES), "access_type": "offline", "prompt": "consent", "state": state,
+        "scope": " ".join(SCOPES + list(extra_scopes or [])), "access_type": "offline", "prompt": "consent",
+        "include_granted_scopes": "true", "state": state,
     })
 
 
@@ -73,7 +75,8 @@ def exchange_code(code: str) -> dict:
     payload = tok["id_token"].split(".")[1]
     claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
     _cache[tok["refresh_token"]] = (tok["access_token"], time.time() + tok.get("expires_in", 3600) - 60)
-    return {"refresh_token": tok["refresh_token"], "email": claims.get("email", "")}
+    return {"refresh_token": tok["refresh_token"], "email": claims.get("email", ""),
+            "scopes": tok.get("scope", "").split()}
 
 
 # ---------- access tokens + Gmail ----------

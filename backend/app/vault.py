@@ -65,7 +65,16 @@ def _delete(name: str) -> bool:
         return True
 
 
+def _list_prefix(prefix: str) -> list[dict]:
+    from sqlmodel import select
+
+    with Session(engine) as s:
+        rows = s.exec(select(SecretRow).where(SecretRow.name.startswith(prefix))).all()
+        return [{"name": r.name, "label": r.label, "use_count": r.use_count} for r in rows]
+
+
 put = lambda n, v, label="": asyncio.to_thread(_put, n, v, label)  # noqa: E731
+list_prefix = lambda p: asyncio.to_thread(_list_prefix, p)  # noqa: E731
 get = lambda n: asyncio.to_thread(_get, n)  # noqa: E731
 info = lambda n: asyncio.to_thread(_info, n)  # noqa: E731
 delete = lambda n: asyncio.to_thread(_delete, n)  # noqa: E731

@@ -69,6 +69,21 @@ async def list_sessions(limit: int = 60) -> list[dict]:
     return await asyncio.to_thread(_sessions, min(limit, 200))
 
 
+@router.get("/sessions/{session_id}/memory")
+async def get_memory(session_id: str) -> dict:
+    from .. import memory
+
+    return {"facts": await memory.facts(session_id)}
+
+
+@router.delete("/sessions/{session_id}/memory/{index}")
+async def forget_fact(session_id: str, index: int) -> dict:
+    """The human can delete anything Banyan remembered."""
+    from .. import memory
+
+    return {"facts": await memory.forget(session_id, index)}
+
+
 @router.get("/sessions/{session_id}/events")
 async def session_events(session_id: str, after: int = 0) -> dict:
     events = await asyncio.to_thread(bus.since_session, session_id, after)
@@ -226,3 +241,157 @@ async def add_demo_email(body: DemoEmailIn) -> dict:
         raise HTTPException(400, "give a preset or sender + subject")
     eid = await asyncio.to_thread(_add_demo, DemoEmail(sender=sender, subject=subject, body=text))
     return {"id": eid, "subject": subject}
+
+
+# ---------- demo Classroom (a stand-in school account for presentations) ----------
+
+DEMO_COURSES = [
+    {"id": "c101", "name": "Data Structures (CS-201)", "section": "Fall 2026", "teacher": "Dr. Ayesha Khan"},
+    {"id": "c102", "name": "Linear Algebra (MTH-231)", "section": "Fall 2026", "teacher": "Prof. Usman Ali"},
+    {"id": "c103", "name": "Technical Writing (ENG-210)", "section": "Fall 2026", "teacher": "Ms. Sara Malik"},
+]
+# (course, title, description, due in N days)
+DEMO_WORK = [
+    ("c101", "Assignment 3: Binary Search Trees",
+     "In Python, implement a BST class with insert(key), delete(key) (handle all three cases: leaf, one child, "
+     "two children using the in-order successor) and inorder() returning a list. Then: (a) insert 50, 30, 70, "
+     "20, 40, 60, 80 and give the in-order output; (b) delete 30 and give the in-order output again; "
+     "(c) state the worst-case time of each operation and when it happens.", 3),
+    ("c101", "Quiz 2: Hashing", "Online quiz, 20 minutes, open at 10am.", 6),
+    ("c102", "Problem Set 4: Eigenvalues",
+     "Show all steps. 1) Find the eigenvalues and eigenvectors of A = [[2, 0], [1, 3]]. "
+     "2) Find the characteristic polynomial of B = [[1, 2], [2, 1]] and its eigenvalues. "
+     "3) Prove that a square matrix and its transpose have the same eigenvalues.", 2),
+    ("c103", "Essay draft: Technology and Society",
+     "Write a 600-word argumentative essay: 'Should universities allow students to use AI assistants for "
+     "coursework?' Take a clear position, give two arguments and one counter-argument, APA style.", 9),
+]
+DEMO_ANN = [
+    ("c101", "Lab moved to Room 4 this Thursday."),
+    ("c102", "Midterm syllabus: chapters 1-5. Past papers are on the drive."),
+]
+PS5 = ("Answer all questions and show every step. "
+       "1) Diagonalize A = [[4, 1], [2, 3]]: find P and D with A = P D P^-1. "
+       "2) Is B = [[1, 1], [0, 1]] diagonalizable? Justify. "
+       "3) Using your answer to 1, compute A^5. "
+       "4) Show that if A is diagonalizable and invertible, then A^-1 is diagonalizable.")
+DEMO_PRESETS = {
+    "assignment": ("c102", "assignment", "Problem Set 5: Diagonalization", PS5, 4),
+    "announcement": ("c101", "announcement", "Class cancelled tomorrow; recorded lecture uploaded.", "", None),
+    "quiz": ("c103", "assignment", "Quiz 1: Citations and referencing", "15 MCQs, opens Friday 9am.", 1),
+}
+
+
+def _due_obj(days: int | None) -> dict | None:
+    if days is None:
+        return None
+    from datetime import date, timedelta
+
+    d = date.today() + timedelta(days=days)
+    return {"year": d.year, "month": d.month, "day": d.day}
+
+
+def _demo_extras(course_id: str, kind: str) -> list:
+    from ..models import DemoCoursework
+
+    with Session(engine) as s:
+        return list(s.exec(select(DemoCoursework).where(DemoCoursework.course_id == course_id,
+                                                        DemoCoursework.kind == kind)).all())
+
+
+def _demo_auth(authorization: str | None) -> None:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "missing bearer token")
+
+
+@router.get("/demo/classroom/v1/courses")
+async def demo_courses(authorization: str | None = Header(default=None)) -> dict:
+    _demo_auth(authorization)
+    return {"courses": [{**c, "courseState": "ACTIVE"} for c in DEMO_COURSES]}
+
+
+@router.get("/demo/classroom/v1/courses/{course_id}/courseWork")
+async def demo_coursework(course_id: str, authorization: str | None = Header(default=None)) -> dict:
+    _demo_auth(authorization)
+    base = [{"id": f"{course_id}-w{i}", "title": t, "description": d, "dueDate": _due_obj(n), "state": "PUBLISHED",
+             "workType": "ASSIGNMENT"} for i, (c, t, d, n) in enumerate(DEMO_WORK) if c == course_id]
+    extra = [{"id": f"x{e.id}", "title": e.title, "description": e.text,
+              "dueDate": {"year": int(e.due[:4]), "month": int(e.due[5:7]), "day": int(e.due[8:10])} if e.due else None,
+              "state": "PUBLISHED", "workType": "ASSIGNMENT"}
+             for e in await asyncio.to_thread(_demo_extras, course_id, "assignment")]
+    return {"courseWork": extra[::-1] + base}
+
+
+@router.get("/demo/classroom/v1/courses/{course_id}/announcements")
+async def demo_announcements(course_id: str, authorization: str | None = Header(default=None)) -> dict:
+    _demo_auth(authorization)
+    base = [{"id": f"{course_id}-a{i}", "text": t} for i, (c, t) in enumerate(DEMO_ANN) if c == course_id]
+    extra = [{"id": f"x{e.id}", "text": e.title}
+             for e in await asyncio.to_thread(_demo_extras, course_id, "announcement")]
+    return {"announcements": extra[::-1] + base}
+
+
+class DemoClassIn(BaseModel):
+    preset: str = "assignment"
+
+
+@router.post("/demo/classroom/simulate")
+async def demo_classroom_simulate(body: DemoClassIn) -> dict:
+    """Post a new item to the demo Classroom, as a teacher would (for presentations)."""
+    from datetime import date, timedelta
+
+    from ..models import DemoCoursework
+
+    if body.preset not in DEMO_PRESETS:
+        raise HTTPException(400, f"preset must be one of {list(DEMO_PRESETS)}")
+    course, kind, title, text, days = DEMO_PRESETS[body.preset]
+    due = (date.today() + timedelta(days=days)).isoformat() if days is not None else None
+
+    def add() -> int:
+        with Session(engine, expire_on_commit=False) as s:
+            row = DemoCoursework(course_id=course, kind=kind, title=title, text=text, due=due)
+            s.add(row)
+            s.commit()
+            return row.id
+
+    return {"id": await asyncio.to_thread(add), "title": title}
+
+
+class ServiceCredIn(BaseModel):
+    token: str | None = None
+    use_demo: bool = False  # Classroom only: use the built-in demo Classroom instead
+    base_url: str | None = None  # custom services
+    auth: str | None = None  # bearer | header | query
+    header: str | None = None  # header (or query param) name for 'header' / 'query' auth
+    label: str | None = None
+
+
+@router.post("/approvals/{approval_id}/service_credential")
+async def provide_service_credential(approval_id: str, body: ServiceCredIn) -> dict:
+    """The human answers a connect_service card. The token goes straight into the vault."""
+    from ..connectors import services
+
+    a = await store.get_approval(approval_id)
+    if not a or a.kind != "connect_service":
+        raise HTTPException(404, "unknown connection request")
+    if a.status != "pending":
+        raise HTTPException(409, "already decided")
+    service = a.details.get("service", "")
+    if body.use_demo:
+        await services.connect("demo_classroom", "demo")
+        chosen = "demo_classroom"
+    else:
+        if not body.token:
+            raise HTTPException(400, "a token is required")
+        try:
+            await services.connect(service, body.token, body.label or a.details.get("label"),
+                                   body.base_url or a.details.get("base_url"), body.auth or a.details.get("auth"),
+                                   body.header)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        chosen = service
+    row = await store.decide(approval_id, "edited" if chosen != service else "approved", "credential provided",
+                             {"service": chosen} if chosen != service else None)
+    if not row:
+        raise HTTPException(409, "already decided")
+    return {"ok": True, "service": chosen}

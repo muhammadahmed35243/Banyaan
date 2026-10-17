@@ -1,14 +1,29 @@
 "use client";
 
 import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import "katex/dist/katex.min.css";
 
-/** Agent answers are Markdown: headings, bullets, tables, links and images from the web. */
+/** Models sometimes write $$...$$ (or a stray $$...$) mid-sentence. Display math only works on
+ * its own line, so inside running text turn it into inline math. */
+function fixMath(text: string): string {
+  return text.split("\n").map((line) => {
+    const t = line.trim();
+    if (!t.includes("$$") || /^\$\$.*\$\$$/.test(t) || t === "$$") return line;
+    return line.replace(/\$\$/g, "$");
+  }).join("\n");
+}
+
+/** Agent answers are Markdown: headings, bullets, tables, links, images from the web, and math
+ * ($x^2$ inline, $$...$$ display) rendered with KaTeX, e.g. matrices in a solved assignment. */
 export default function Markdown({ text }: { text: string }) {
   return (
     <div className="banyan-md text-sm leading-relaxed text-slate-200">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
+        rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: "ignore" }]]}
         components={{
           a: ({ href, children }) => (
             <a href={href} target="_blank" rel="noreferrer noopener" className="text-af-medium underline hover:text-af-medium-hover">{children}</a>
@@ -22,7 +37,7 @@ export default function Markdown({ text }: { text: string }) {
           ),
         }}
       >
-        {text}
+        {fixMath(text)}
       </ReactMarkdown>
     </div>
   );

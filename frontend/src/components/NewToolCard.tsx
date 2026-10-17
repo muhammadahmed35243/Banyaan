@@ -19,7 +19,7 @@ interface ToolDetails {
 
 const TABS = ["Code", "Spec", "Tests", "Critic"] as const;
 const sevColor = (s: string) =>
-  s === "block" ? "text-red-400" : s === "warn" ? "text-amber-400" : "text-slate-400";
+  s === "block" ? "text-red-600" : s === "warn" ? "text-amber-600" : "text-slate-400";
 
 export default function NewToolCard({ a }: { a: Approval }) {
   const d = a.details as unknown as ToolDetails;
@@ -47,14 +47,14 @@ export default function NewToolCard({ a }: { a: Approval }) {
       </div>
       <div className="mt-1 font-medium">{a.title}</div>
       {d.blocked && (
-        <div className="mt-2 rounded bg-red-950 p-2 text-xs text-red-300">
+        <div className="mt-2 rounded bg-red-50 p-2 text-xs text-red-700">
           Blocked by the security checks. It cannot be approved, only rejected.
         </div>
       )}
       <div className="mt-2 flex gap-1 border-b border-slate-800">
         {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-2 py-1 text-xs ${tab === t ? "border-b-2 border-purple-400 text-white" : "text-slate-400"}`}>
+            className={`px-2 py-1 text-xs ${tab === t ? "border-b-2 border-af-blue text-af-dark" : "text-slate-400"}`}>
             {t}
           </button>
         ))}
@@ -62,7 +62,7 @@ export default function NewToolCard({ a }: { a: Approval }) {
       <div className="mt-2 max-h-64 overflow-auto rounded bg-slate-950 p-2 font-mono text-[11px] leading-5">
         {tab === "Code" &&
           d.code.split("\n").map((l, i) => (
-            <div key={i} className={flagged.has(i + 1) ? "bg-red-950/70" : ""}>
+            <div key={i} className={flagged.has(i + 1) ? "bg-red-50" : ""}>
               <span className="mr-2 select-none text-slate-600">{i + 1}</span>{l}
             </div>
           ))}
@@ -102,7 +102,7 @@ export default function NewToolCard({ a }: { a: Approval }) {
         )}
         <button onClick={() => decide("rejected")} className="rounded bg-red-700 px-2 py-1 text-xs hover:bg-red-600">Reject</button>
       </div>
-      {err && <div className="mt-1 text-xs text-red-400">{err}</div>}
+      {err && <div className="mt-1 text-xs text-red-600">{err}</div>}
     </div>
   );
 }

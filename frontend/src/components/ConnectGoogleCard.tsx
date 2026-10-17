@@ -26,7 +26,7 @@ export default function ConnectGoogleCard({ a }: { a: Approval }) {
 
   return (
     <div className="rounded-lg border-l-4 border-amber-400 bg-slate-900 p-3 text-sm">
-      <div className="text-[10px] uppercase tracking-wide text-amber-300">🔐 sign-in needed · {a.risk} risk</div>
+      <div className="text-[10px] uppercase tracking-wide text-amber-700">🔐 sign-in needed · {a.risk} risk</div>
       <div className="mt-1 font-medium">{a.title}</div>
       <p className="mt-1 text-xs text-slate-300">{d.purpose}{d.subject ? ` · “${d.subject}”` : ""}</p>
       <p className="mt-1 text-xs text-slate-400">{d.access} The token goes into the encrypted vault; agents never see it.</p>
@@ -41,7 +41,7 @@ export default function ConnectGoogleCard({ a }: { a: Approval }) {
         <button disabled={!note} onClick={async () => { const r = await decide(a.id, "rejected", { note }); if (!r.ok) setErr(r.detail); }}
           className="rounded bg-red-700 px-2 py-1 text-xs hover:bg-red-600 disabled:opacity-40">Skip</button>
       </div>
-      {err && <div className="mt-1 text-xs text-red-400">{err}</div>}
+      {err && <div className="mt-1 text-xs text-red-600">{err}</div>}
     </div>
   );
 }

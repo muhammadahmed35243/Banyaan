@@ -196,14 +196,38 @@ async def _plan_and_run(ctx: Ctx, node: Node) -> str:
     await set_status(ctx, node, "thinking")
     plan = await llm_call(ctx, node, ctx.llm.plan, node.goal, node.depth, ctx.history if node.depth == 0 else "")
     await checkpoint(ctx, node)
+    edited = ""
+    if node.depth == 0 and ctx.session_id:
+        from .. import memory, watchers
+
+        if plan.remember:
+            await memory.remember(ctx.session_id, ctx.run_id, plan.remember)
+            await emit(ctx, "log", node, message="Remembered: " + "; ".join(plan.remember))
+        for edit in plan.flow_edits:  # "pause the watcher", "also include salary emails", ...
+            await emit(ctx, "log", node, message=f"Editing flow {edit.watch_id}: {edit.action}")
+            edited += (" " if edited else "") + await watchers.edit_flow(ctx.session_id, ctx.run_id, edit)
+        if edited and not plan.subtasks and not plan.standing_watch:
+            return await _finish(ctx, node, edited, 0.9)  # the edit's real outcome, not the Planner's guess
+    if plan.connect and node.depth == 0:
+        # The goal needs the user's own account somewhere: get access first (a human decision).
+        chosen = await _ensure_connected(ctx, node, plan.connect)
+        if not chosen:
+            return await _finish(ctx, node, f"I can't read your {plan.connect.label} without access, "
+                                            "so I stopped here. Ask again whenever you want to connect it.", 0.9)
+        if plan.standing_watch and plan.standing_watch.source == "service":
+            plan.standing_watch.service = chosen
+        if chosen != plan.connect.service:  # e.g. the human picked the demo Classroom
+            for s in plan.subtasks:
+                s.goal += f" (use the connected service '{chosen}')"
     if plan.standing_watch and node.depth == 0:
         # A standing goal ("whenever X, tell me"): spawn a long-lived watcher agent.
         from .. import watchers
 
         await set_status(ctx, node, "running_tool")
-        return await _finish(ctx, node, await watchers.start(ctx, node, plan.standing_watch), 0.9)
+        msg = await watchers.start(ctx, node, plan.standing_watch)
+        return await _finish(ctx, node, _join(edited, msg), 0.9)
     if plan.direct_answer or not plan.subtasks:
-        return await _finish(ctx, node, plan.direct_answer or "No subtasks produced", 0.8)
+        return await _finish(ctx, node, _join(edited, plan.direct_answer or "No subtasks produced"), 0.8)
 
     subs = {s.id: s for s in plan.subtasks[:5]}
     results: dict[str, str | None] = {}
@@ -236,9 +260,41 @@ async def _plan_and_run(ctx: Ctx, node: Node) -> str:
     if not good:
         raise RuntimeError("all subtasks failed or were pruned")
     if len(subs) == 1:  # nothing to merge: don't spend a model call (or a node) on it
-        return await _finish(ctx, node, next(iter(good.values())), 0.8)
+        return await _finish(ctx, node, _join(edited, next(iter(good.values()))), 0.8)
     out: WorkerOutput = await llm_call(ctx, node, ctx.llm.synthesize, node.goal, good)
-    return await _finish(ctx, node, out.result, out.confidence)
+    return await _finish(ctx, node, _join(edited, out.result), out.confidence)
+
+
+async def _ensure_connected(ctx: Ctx, node: Node, need) -> str | None:
+    """-> the service name now connected, or None if the human declined. Asks with a
+    connect_service card; the credential itself never passes through here."""
+    from ..connectors import google, services
+
+    if await services.connected(need.service):
+        return need.service
+    known = services.KNOWN.get(need.service, {})
+    auth = known.get("auth", "bearer")
+    await set_status(ctx, node, "waiting_human")
+    await emit(ctx, "secret_requested", node, name=f"svc:{need.service}", have=False)
+    row = await approvals.request(
+        ctx.run_id, node.id, "connect_service", f"Connect {need.label}",
+        {"service": need.service, "label": need.label, "why": need.why, "auth": auth,
+         "known": bool(known), "base_url": need.base_url, "google_enabled": google.enabled(),
+         "needs_base_url": bool(known) and not known.get("base_url") and need.service != "demo_classroom",
+         "base_hint": known.get("base_hint"), "token_hint": known.get("token_hint"),
+         "demo": need.service == "google_classroom",
+         "access": "Read-only for Banyan. Anything that would change data waits for your approval. "
+                   "The credential goes into the encrypted vault; agents never see it."},
+        "medium")
+    await set_status(ctx, node, "thinking")
+    if row.status == "rejected":
+        return None
+    return (row.edited_payload or {}).get("service", need.service)
+
+
+def _join(edited: str, answer: str) -> str:
+    """Put what changed in a running flow ahead of the answer."""
+    return f"{edited}\n\n{answer}" if edited else answer
 
 
 async def _finish(ctx: Ctx, node: Node, result: str, confidence: float) -> str:
@@ -257,26 +313,11 @@ async def _finish(ctx: Ctx, node: Node, result: str, confidence: float) -> str:
     return result
 
 
-def _session_history(session_id: str, run_id: str, limit: int = 5) -> str:
-    """The last few goals and answers of this session, so follow-ups ('and under 15 lac?') work."""
-    from sqlmodel import Session, select
-
-    from ..db import engine
-    from ..models import EventRow, SessionRun
-
-    with Session(engine) as s:
-        runs = s.exec(select(SessionRun).where(SessionRun.session_id == session_id, SessionRun.run_id != run_id)
-                      .order_by(SessionRun.created_at.desc()).limit(limit)).all()
-        lines = []
-        for r in reversed(runs):
-            fin = s.exec(select(EventRow).where(EventRow.run_id == r.run_id, EventRow.type == "run_finished")).first()
-            answer = (fin.payload.get("result") or "") if fin else "(still running)"
-            lines.append(f"- User: {r.goal}\n  Banyan: {answer[:600]}")
-    return "\n".join(lines)
-
-
 async def run_goal(run_id: str, goal: str, session_id: str | None = None, llm: LLM | None = None) -> str | None:
-    history = await asyncio.to_thread(_session_history, session_id, run_id) if session_id else ""
+    from .. import memory
+
+    # The session's memory: remembered facts, recent conversation, running flows, bills.
+    history = await memory.context(session_id, run_id) if session_id else ""
     ctx = Ctx(run_id, llm or get_llm(), asyncio.Semaphore(settings.max_parallel_agents), session_id, history)
     await emit(ctx, "run_started", goal=goal, mock=type(ctx.llm).__name__ == "MockLLM")
     try:

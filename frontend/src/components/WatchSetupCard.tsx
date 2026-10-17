@@ -54,7 +54,7 @@ export default function WatchSetupCard({ a }: { a: Approval }) {
   const btn = "rounded px-2 py-1 text-xs disabled:opacity-40";
   return (
     <div className="rounded-lg border-l-4 border-cyan-400 bg-slate-900 p-3 text-sm">
-      <div className="text-[10px] uppercase tracking-wide text-cyan-300">🔐 credential request · {a.risk} risk</div>
+      <div className="text-[10px] uppercase tracking-wide text-cyan-700">🔐 credential request · {a.risk} risk</div>
       <div className="mt-1 font-medium">{a.title}</div>
       <p className="mt-1 text-xs text-slate-300">
         Alert you about emails <b>{d.condition}</b>. Checks every ~{d.interval_sec}s.
@@ -105,7 +105,7 @@ export default function WatchSetupCard({ a }: { a: Approval }) {
           className={`${btn} mt-1 bg-red-700 hover:bg-red-600`}>Deny</button>
       </div>
       {busy && <div className="mt-1 text-xs text-slate-400">Waiting for sign-in…</div>}
-      {err && <div className="mt-1 text-xs text-red-400">{err}</div>}
+      {err && <div className="mt-1 text-xs text-red-600">{err}</div>}
     </div>
   );
 }

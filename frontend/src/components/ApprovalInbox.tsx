@@ -6,6 +6,7 @@ import { useBanyan, type Approval } from "@/store/useBanyan";
 import NewToolCard from "./NewToolCard";
 import WatchSetupCard from "./WatchSetupCard";
 import ConnectGoogleCard from "./ConnectGoogleCard";
+import ConnectServiceCard from "./ConnectServiceCard";
 import Markdown from "./Markdown";
 
 function Card({ a }: { a: Approval }) {
@@ -38,7 +39,7 @@ function Card({ a }: { a: Approval }) {
           <div><span className="text-slate-500">Subject:</span> {String(a.details.subject)}</div>
           <p className="whitespace-pre-wrap">{String(a.details.body)}</p>
           {a.details.via !== undefined && (
-            <div className={String(a.details.via).startsWith("Gmail") ? "text-amber-300" : "text-slate-500"}>
+            <div className={String(a.details.via).startsWith("Gmail") ? "text-amber-700" : "text-slate-500"}>
               Sends via {String(a.details.via)}
             </div>
           )}
@@ -65,7 +66,7 @@ function Card({ a }: { a: Approval }) {
         )}
         <button onClick={() => decide("rejected")} className="rounded bg-red-700 px-2 py-1 text-xs hover:bg-red-600">Reject</button>
       </div>
-      {err && <div className="mt-1 text-xs text-red-400">{err}</div>}
+      {err && <div className="mt-1 text-xs text-red-600">{err}</div>}
     </div>
   );
 }
@@ -78,7 +79,7 @@ function Bills() {
   const currency = (bills[0].amount.match(/^[^\d\s]+/) ?? ["PKR"])[0];
   return (
     <div className="mb-4">
-      <h2 className="mb-2 flex justify-between text-xs font-semibold uppercase tracking-wide text-emerald-300">
+      <h2 className="mb-2 flex justify-between text-xs font-semibold uppercase tracking-wide text-emerald-700">
         <span>📒 Bills tracker</span>
         <span>{due.length} due · {currency} {due.reduce((s, b) => s + num(b.amount), 0).toLocaleString()}</span>
       </h2>
@@ -86,7 +87,7 @@ function Bills() {
         {bills.map((b) => (
           <div key={b.id} className="flex justify-between rounded bg-slate-900 px-2 py-1.5 text-xs">
             <span className="truncate">{b.payee}{b.dueDate && <span className="text-slate-500"> · due {b.dueDate}</span>}</span>
-            <span className={b.status === "paid" ? "text-emerald-400" : "text-amber-300"}>
+            <span className={b.status === "paid" ? "text-emerald-600" : "text-amber-700"}>
               {b.amount} {b.status === "paid" ? "✓ paid" : "due"}
             </span>
           </div>
@@ -102,7 +103,7 @@ function NotifyToggle() {
   if (!watching || perm !== "default") return null;
   return (
     <button onClick={() => Notification.requestPermission().then(setPerm)}
-      className="mb-3 w-full rounded border border-cyan-900 px-2 py-1.5 text-xs text-cyan-200 hover:bg-cyan-950">
+      className="mb-3 w-full rounded border border-cyan-200 px-2 py-1.5 text-xs text-cyan-800 hover:bg-cyan-50">
       🔔 Show desktop notifications for alerts
     </button>
   );
@@ -116,14 +117,14 @@ function Alerts() {
   if (live.length === 0) return null;
   return (
     <div className="mb-4">
-      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-cyan-300">🔔 Alerts ({live.length})</h2>
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-cyan-700">🔔 Alerts ({live.length})</h2>
       <div className="space-y-2">
         {live.map((a) => (
           <div key={a.id} onClick={() => select(a.id)}
-            className="cursor-pointer rounded-lg border-l-4 border-cyan-400 bg-cyan-950/40 p-3 text-xs">
+            className="cursor-pointer rounded-lg border-l-4 border-cyan-400 bg-cyan-50 p-3 text-xs">
             <div className="flex justify-between gap-2">
               <span className="font-medium text-slate-100">{a.subject}</span>
-              {a.amount && <span className="shrink-0 rounded bg-cyan-800 px-1.5 text-cyan-50">{a.amount}</span>}
+              {a.amount && <span className="shrink-0 rounded bg-cyan-800 px-1.5 text-cyan-800">{a.amount}</span>}
             </div>
             <div className="mt-0.5 text-slate-400">{a.sender} · {new Date(a.ts).toLocaleTimeString()}</div>
             <p className="mt-1 text-slate-300">{a.summary}</p>
@@ -140,7 +141,7 @@ export default function ApprovalInbox() {
   const approvals = useBanyan((s) => s.approvals);
   const pending = Object.values(approvals).filter((a) => a.status === "pending");
   return (
-    <aside className={`${pending.length ? "w-96" : "w-64"} shrink-0 overflow-y-auto border-l border-slate-800 p-3 transition-all`}>
+    <aside className={`${pending.length ? "w-96" : "w-64"} shrink-0 overflow-y-auto border-l border-slate-800 bg-slate-900 p-3 transition-all`}>
       <NotifyToggle />
       <Alerts />
       <Bills />
@@ -153,6 +154,7 @@ export default function ApprovalInbox() {
           a.kind === "new_tool" ? <NewToolCard key={a.id} a={a} />
             : a.kind === "watch_setup" ? <WatchSetupCard key={a.id} a={a} />
               : a.kind === "connect_google" ? <ConnectGoogleCard key={a.id} a={a} />
+              : a.kind === "connect_service" ? <ConnectServiceCard key={a.id} a={a} />
               : <Card key={a.id} a={a} />)}
       </div>
     </aside>

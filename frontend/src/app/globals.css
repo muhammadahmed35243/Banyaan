@@ -1,38 +1,39 @@
 @import "tailwindcss";
 
-/* Alternate Futures palette, dark mode (product UI): near-black page, #141414 surfaces,
-   Brand Blue for primary actions, Medium Blue for links, Apricot as the warm accent,
-   Terracotta for alerts only. */
+/* Light, professional theme: white surfaces on a cool off-white page, Brand Blue (#000AFF) and
+   its shades for every action and highlight, one near-black for text. */
 :root {
-  --background: #0a0a0a;
-  --foreground: #f9f5ee;
-  color-scheme: dark;
+  --background: #f4f6fb;
+  --foreground: #1a1a1a;
+  color-scheme: light;
 }
 
 @theme {
   --color-af-blue: #000aff;
   --color-af-blue-hover: #0008cc;
   --color-af-dark: #0000af;
-  --color-af-medium: #a5b2ff;
-  --color-af-medium-hover: #b8c3ff;
-  --color-af-apricot: #ffc7aa;
-  --color-af-sky: #c8e0e4;
-  --color-af-terracotta: #be4200;
-  --color-af-cream: #f9f5ee;
+  --color-af-medium: #2e3bff;       /* links, focus rings (Brand Blue, a touch lighter) */
+  --color-af-medium-hover: #000aff;
+  --color-af-soft: #e8ebff;         /* blue tint for selected / hover surfaces */
+  --color-af-apricot: #b45309;      /* warm accent as text on white */
+  --color-af-sky: #0e7490;          /* watchers */
+  --color-af-terracotta: #be4200;   /* alerts only */
+  --color-af-cream: #111827;        /* strongest text (headings) */
 
-  /* The existing UI is written in Tailwind's slate scale; remap it to the AF neutrals so
-     every panel picks up the brand without touching each class. */
-  --color-slate-50: #fbf9f5;
-  --color-slate-100: #f9f5ee;
-  --color-slate-200: #ebe7df;
-  --color-slate-300: #d2cfd9;
-  --color-slate-400: #a6a6bb;
-  --color-slate-500: #7a7a93;
-  --color-slate-600: #50506b;
-  --color-slate-700: #34344c;
-  --color-slate-800: #1f1f33;
-  --color-slate-900: #141414;
-  --color-slate-950: #0a0a0a;
+  /* The UI is written in Tailwind's slate scale (it started dark). Inverting the scale here
+     turns every panel light without touching each class: 950/900 are now the page and the
+     white cards, 100/200 the dark text. */
+  --color-slate-50: #0b1220;
+  --color-slate-100: #111827;
+  --color-slate-200: #1f2937;
+  --color-slate-300: #374151;
+  --color-slate-400: #4b5563;
+  --color-slate-500: #6b7280;
+  --color-slate-600: #9aa3b5;
+  --color-slate-700: #d5dbe7;
+  --color-slate-800: #e6eaf2;
+  --color-slate-900: #ffffff;
+  --color-slate-950: #f4f6fb;
 }
 
 @theme inline {
@@ -59,8 +60,8 @@ code, pre, kbd { font-family: var(--font-jetbrains-mono), monospace; font-featur
 
 /* A watcher stays alive after its goal finishes: a slow "breathing" glow. */
 @keyframes banyan-watch {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(200, 224, 228, 0.0); }
-  50% { box-shadow: 0 0 18px 2px rgba(200, 224, 228, 0.45); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(14, 116, 144, 0.0); }
+  50% { box-shadow: 0 0 16px 2px rgba(14, 116, 144, 0.35); }
 }
 .pulse-watch { animation: banyan-watch 2.4s ease-in-out infinite; }
 
@@ -84,7 +85,31 @@ code, pre, kbd { font-family: var(--font-jetbrains-mono), monospace; font-featur
 .banyan-md a:hover { color: var(--color-af-medium-hover); }
 .banyan-md table { width: 100%; border-collapse: collapse; margin: 0.5em 0; font-size: 0.8rem; }
 .banyan-md th, .banyan-md td { border: 1px solid var(--color-slate-700); padding: 4px 6px; text-align: left; }
-.banyan-md th { background: var(--color-slate-800); }
-.banyan-md code { background: var(--color-slate-800); padding: 0 4px; border-radius: 4px; font-size: 0.85em; }
+.banyan-md th { background: var(--color-af-soft); color: var(--color-af-dark); }
+.banyan-md code { background: var(--color-af-soft); color: var(--color-af-dark); padding: 0 4px; border-radius: 4px; font-size: 0.85em; }
 
 .react-flow__attribution { display: none; }
+
+/* Math in answers (KaTeX): readable on the dark theme; wide matrices scroll instead of overflowing. */
+.banyan-md .katex { font-size: 1.05em; color: #111827; }
+.banyan-md .katex-display { margin: 0.6em 0; overflow-x: auto; overflow-y: hidden; padding: 0.2em 0; }
+.banyan-md h3 { color: var(--color-af-dark); border-top: 1px solid var(--color-slate-800); padding-top: 0.6em; }
+.banyan-md ol > li::marker { color: var(--color-af-medium); }
+
+/* Cards and panels: soft elevation instead of heavy borders. */
+.shadow-card { box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 16px rgba(16, 24, 40, 0.06); }
+
+/* ---------- Agent tree motion ---------- */
+/* Nodes glide to their new place when the tree grows (React Flow positions via transform). */
+.react-flow__node { transition: transform 450ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+/* Thinking: a blue sheen sweeps across the card. */
+@keyframes banyan-sheen { 0% { background-position: -150% 0; } 100% { background-position: 250% 0; } }
+.agent-thinking {
+  background-image: linear-gradient(110deg, transparent 30%, rgba(0, 10, 255, 0.09) 50%, transparent 70%);
+  background-size: 200% 100%; animation: banyan-sheen 1.8s linear infinite;
+}
+@keyframes banyan-spin { to { transform: rotate(360deg); } }
+.agent-spinner { width: 10px; height: 10px; border-radius: 9999px; border: 2px solid #c7cdfd;
+  border-top-color: #000aff; animation: banyan-spin 0.8s linear infinite; display: inline-block; }
+/* Active edges: dashes flow toward the working agent. */
+.react-flow__edge.edge-live path { stroke: #000aff !important; stroke-width: 2.2; }

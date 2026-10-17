@@ -1,5 +1,6 @@
 """Built-in tools as plain async functions. (Phase 3 exposes the same registry via FastMCP
 for hot-loading; Phase 1 workers call these directly to avoid a network hop per call.)"""
+import json
 import os
 import re
 
@@ -110,6 +111,37 @@ async def send_email(to: str, subject: str, body: str, *, run_id: str, agent_id:
     # Worded so the agent can't report it as delivered.
     return {"sent": False, "mock": True,
             "reason": "NOT SENT: demo mode, no Gmail connected. Tell the user it was approved but not delivered."}
+
+
+async def call_service(service: str, path: str, method: str = "GET", params: dict | None = None,
+                       body: dict | None = None, *, run_id: str, agent_id: str) -> str:
+    """Call a connected service (Classroom, GitHub, a custom API) with the user's credential.
+    Reads run freely; a write waits for a human click. The credential stays on the server."""
+    from .. import approvals
+    from ..connectors import services
+    from ..events import bus
+    from ..models import Event
+
+    async def ev(type_: str, **payload):
+        await bus.publish(Event(run_id=run_id, type=type_, agent_id=agent_id, payload=payload))
+
+    method = (method or "GET").upper()
+    await ev("tool_call", tool="call_service", args={"service": service, "method": method, "path": path})
+    if method != "GET":
+        s = await services.config(service) or {"label": service}
+        row = await approvals.request(run_id, agent_id, "risky_action", f"{method} on {s['label']}: {path}",
+                                      {"service": s["label"], "method": method, "path": path,
+                                       "result": f"```json\n{json.dumps(body or {}, indent=1)[:1500]}\n```"}, "high")
+        if row.status == "rejected":
+            return f"NOT DONE: the human rejected this change ({row.note or 'no reason'})"
+    try:
+        await ev("secret_used", name=f"svc:{service}", purpose=f"{method} {path}"[:80])
+        out = await services.call_text(service, method, path, params, body)
+    except Exception as e:
+        await ev("tool_result", tool="call_service", summary=f"error: {e}"[:200])
+        return f"ERROR: {e}"
+    await ev("tool_result", tool="call_service", summary=f"{len(out)} chars from {service}")
+    return out
 
 
 def calculate(expression: str) -> str:

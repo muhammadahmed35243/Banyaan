@@ -18,6 +18,7 @@ EventType = Literal[
     "budget_warning", "speak",
     "system_flow",
     "alert", "watch_started", "watch_stopped", "bill_tracked", "notified",
+    "memory_updated", "flow_updated",
     "log",
 ]
 
@@ -148,6 +149,10 @@ class WatchRow(SQLModel, table=True):
     condition: str = ""  # natural-language rule, e.g. "related to a payment"
     credential: str = "gmail"
     forward_to: str | None = None  # also email each alert here (consented on the setup card)
+    service: str | None = None  # source "service": which connected service it polls (e.g. google_classroom)
+    request: str | None = None  # for a custom service: the GET path to poll
+    seen: list | None = SQLField(default=None, sa_column=Column(JSON))  # ids already reported
+    interval_sec: int | None = None  # per-watch check interval (APIs are polled less often than mail)
     cursor: int = 0  # last email id / IMAP UID already examined
     status: str = "active"  # active | paused | stopped
     checks: int = 0
@@ -180,4 +185,29 @@ class DemoEmail(SQLModel, table=True):
     sender: str
     subject: str
     body: str = ""
+    created_at: datetime = SQLField(default_factory=_now)
+
+
+class SessionMemory(SQLModel, table=True):
+    """Durable facts the user told Banyan in a session ("my budget is 15k", "my email is ..."),
+    shown to every later goal of that session. The human can delete any of them."""
+
+    __tablename__ = "session_memory"
+
+    session_id: str = SQLField(primary_key=True)
+    facts: list = SQLField(default_factory=list, sa_column=Column(JSON))
+    updated_at: datetime = SQLField(default_factory=_now)
+
+
+class DemoCoursework(SQLModel, table=True):
+    """Extra items in the built-in demo Classroom ("Simulate" adds them during a presentation)."""
+
+    __tablename__ = "demo_coursework"
+
+    id: int | None = SQLField(default=None, primary_key=True)
+    course_id: str
+    kind: str = "assignment"  # assignment | announcement
+    title: str
+    text: str = ""
+    due: str | None = None  # YYYY-MM-DD
     created_at: datetime = SQLField(default_factory=_now)

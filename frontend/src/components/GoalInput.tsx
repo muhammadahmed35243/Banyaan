@@ -13,18 +13,18 @@ export default function GoalInput({ sessionId, onNewSession }: { sessionId: stri
   const pending = useBanyan((s) => Object.values(s.approvals).filter((a) => a.status === "pending").length);
   const running = useBanyan((s) => Object.values(s.runs).filter((r) => r.status === "running").length);
   const watching = useBanyan((s) => Object.values(s.nodes)
-    .filter((n) => n.role === "watcher" && !["done", "failed", "pruned"].includes(n.status)).length);
+    .filter((n) => n.role === "watcher" && n.status === "watching").length);
   const [goal, setGoal] = useState("");
   const [guide, setGuide] = useState(false);
 
   // The input stays free after submitting, so more goals can run in parallel.
   return (
-    <header className="relative flex items-center gap-3 border-b border-slate-800 px-5 py-3">
-      <Link href="/" className="text-lg font-bold tracking-tight hover:text-af-medium">🌳 Banyan</Link>
+    <header className="relative z-10 flex items-center gap-2 border-b bg-slate-900 shadow-[0_1px_8px_rgba(16,24,40,0.05)] [&_button]:whitespace-nowrap border-slate-800 px-5 py-3">
+      <Link href="/" className="whitespace-nowrap text-lg font-bold tracking-tight hover:text-af-medium">🌳 Banyan</Link>
       <Link href="/sessions" className="whitespace-nowrap text-xs text-slate-400 hover:text-af-medium">← Sessions</Link>
       <VoiceOrb sessionId={sessionId} />
       <form
-        className="flex flex-1 gap-2"
+        className="flex min-w-[10rem] flex-1 gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           if (!goal.trim()) return;
@@ -46,14 +46,14 @@ export default function GoalInput({ sessionId, onNewSession }: { sessionId: stri
         className="rounded-lg bg-af-dark px-3 py-1.5 text-xs font-medium text-white hover:bg-af-blue">▶ Demo</button>
       <button onClick={() => setGuide((g) => !g)} title="Presentation script"
         className="rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:bg-slate-800">📋 Script</button>
-      <button onClick={() => launchFakeRun(sessionId)}
-        className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800">
+      <button onClick={() => launchFakeRun(sessionId)} title="Scripted run, no AI calls"
+        className="hidden rounded-lg 2xl:block border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800">
         Fake run
       </button>
       {watching > 0 && <SimulateEmail />}
       <ToolLibrary />
       {pending > 0 && (
-        <span className="rounded-full bg-purple-600 px-2.5 py-0.5 text-xs font-medium">{pending} need you</span>
+        <span className="whitespace-nowrap rounded-full bg-purple-600 px-2.5 py-0.5 text-xs font-medium">{pending} need you</span>
       )}
       <span className="whitespace-nowrap text-xs text-slate-400">
         {running} running{watching > 0 && <span className="text-af-sky"> · {watching} watching</span>}

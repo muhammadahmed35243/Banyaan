@@ -39,7 +39,7 @@ export default function DemoGuide({ sessionId, onClose }: { sessionId: string; o
       <ol className="space-y-2">
         {STEPS.map(([title, text], i) => (
           <li key={i} onClick={() => setDone((d) => { const n = new Set(d); if (n.has(i)) n.delete(i); else n.add(i); return n; })}
-            className={`cursor-pointer rounded-lg border p-2 ${done.has(i) ? "border-emerald-900 opacity-50" : "border-slate-800 hover:border-slate-600"}`}>
+            className={`cursor-pointer rounded-lg border p-2 ${done.has(i) ? "border-emerald-200 opacity-50" : "border-slate-800 hover:border-slate-600"}`}>
             <div className="font-medium text-slate-200">{done.has(i) ? "✓" : i + 1}. {title}</div>
             <div className="mt-0.5 text-slate-400">{text}</div>
           </li>

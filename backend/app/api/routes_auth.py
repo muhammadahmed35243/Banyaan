@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import store, vault, watchers
-from ..connectors import google
+from ..connectors import google, services
 
 router = APIRouter(prefix="/api/auth/google")
 
@@ -18,10 +18,13 @@ async def config() -> dict:
 
 
 @router.get("/start")
-async def start(approval_id: str | None = None) -> RedirectResponse:
+async def start(approval_id: str | None = None, service: str | None = None) -> RedirectResponse:
+    """`service` (e.g. google_classroom) adds that service's read-only scopes to the sign-in."""
     if not google.enabled():
         raise HTTPException(404, "Google sign-in is not configured")
-    return RedirectResponse(google.auth_url(google.sign_state({"approval_id": approval_id})))
+    extra = (services.KNOWN.get(service) or {}).get("scopes", []) if service else []
+    state = google.sign_state({"approval_id": approval_id, "service": service})
+    return RedirectResponse(google.auth_url(state, extra))
 
 
 def _page(ok: bool, text: str) -> HTMLResponse:
@@ -48,10 +51,13 @@ async def callback(code: str | None = None, state: str | None = None, error: str
     except Exception as e:
         return _page(False, f"Sign-in failed: {e}")
     await vault.put("google", tok, tok["email"])
-    await vault.put("gmail", {"mode": "google"}, f"Gmail: {tok['email']}")  # watchers read this inbox now
+    if not data.get("service"):  # a plain Google sign-in is for Gmail; a Classroom one leaves Gmail as is
+        await vault.put("gmail", {"mode": "google"}, f"Gmail: {tok['email']}")  # watchers read this inbox now
     if data.get("approval_id"):
         a = await store.get_approval(data["approval_id"])
-        if a and a.status == "pending" and a.kind in ("watch_setup", "connect_google"):
+        if a and a.status == "pending" and a.kind in ("watch_setup", "connect_google", "connect_service"):
+            if a.kind == "connect_service" and not await services.connected(a.details.get("service", "")):
+                return _page(False, "Google did not grant the access this needs. Try again and tick every box.")
             row = await store.decide(a.id, "approved", "Google sign-in", None)
             if row and row.kind == "watch_setup":
                 await watchers.resume_setup(row)

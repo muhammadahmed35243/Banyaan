@@ -63,9 +63,33 @@ export interface StatusPoint { status: AgentStatus; t: number }
 export interface Mark { t: number; kind: "tool" | "alert"; label: string }
 
 const TOOL_TARGET: Record<string, string> = {
-  web_search: "serpapi", fetch_url: "web", email_inbox: "inbox",
+  web_search: "serpapi", image_search: "serpapi", fetch_url: "web", email_inbox: "inbox", call_service: "services",
   calculate: "tools", current_time: "tools", send_email: "tools",
 };
+
+/** A past hop on the System Map, kept for the click-for-details panel. */
+export interface Hop { id: string; t: number; from: string; to: string; gold: boolean; label: string }
+
+/** A short human description of an event, for the map's activity list. */
+function describe(e: BanyanEvent): string {
+  const p = e.payload;
+  switch (e.type) {
+    case "run_started": return `New goal: ${String(p.goal ?? "").slice(0, 60)}`;
+    case "run_finished": return "Answer delivered";
+    case "agent_spawned": return `Spawned ${p.role ?? "agent"}: ${String(p.goal ?? "").slice(0, 50)}`;
+    case "agent_status": return `LLM call (${p.tokens ?? 0} tokens so far)`;
+    case "tool_call": return `${p.tool}${p.args && (p.args as Record<string, unknown>).query ? `: ${(p.args as Record<string, unknown>).query}` : ""}`.slice(0, 70);
+    case "toolsmith_stage": return `Toolsmith: ${p.stage ?? "stage"}`;
+    case "tool_loaded": return `Tool loaded: ${p.name ?? ""}`;
+    case "secret_used": return `Secret "${p.name}" used to ${p.purpose ?? "connect"}`;
+    case "needs_human": return `Asked you: ${String(p.title ?? "").slice(0, 60)}`;
+    case "human_decision": return `You decided: ${p.decision}`;
+    case "alert": return `Alert: ${String(p.subject ?? "").slice(0, 60)}`;
+    case "bill_tracked": return `Bill tracked: ${p.payee} ${p.amount}`;
+    case "notified": return "Phone notified";
+    default: return e.type;
+  }
+}
 
 /** Which System Map edges an event travels along. Derived from ordinary events, so the
  * map needs no extra backend support and replays like everything else. */
@@ -100,7 +124,9 @@ interface BanyanState {
   alerts: Alert[];
   dismissed: Set<string>;
   bills: Bill[];
+  memory: string[]; // facts Banyan remembers in this session (the latest memory_updated wins)
   flows: Flow[];
+  trail: Hop[]; // the last few hundred hops, live or replayed
   edgeCounts: Record<string, number>;
   history: Record<string, StatusPoint[]>;
   marks: Record<string, Mark[]>;
@@ -114,13 +140,14 @@ interface BanyanState {
   select: (id: string | null) => void;
   dismiss: (id: string) => void;
   setLive: () => void;
+  setMemory: (facts: string[]) => void;
   applyEvent: (e: BanyanEvent) => void;
   reset: () => void;
 }
 
 const EMPTY = {
   seen: new Set<string>(), nodes: {}, approvals: {}, runs: {}, alerts: [], dismissed: new Set<string>(),
-  bills: [], flows: [], edgeCounts: {}, history: {}, marks: {}, firstTs: null, lastTs: null, live: false,
+  bills: [], memory: [], flows: [], trail: [], edgeCounts: {}, history: {}, marks: {}, firstTs: null, lastTs: null, live: false,
   selectedId: null, toolsLoaded: 0,
 };
 
@@ -134,6 +161,7 @@ export const useBanyan = create<BanyanState>((set) => ({
   select: (id) => set({ selectedId: id }),
   dismiss: (id) => set((s) => ({ dismissed: new Set(s.dismissed).add(id) })),
   setLive: () => set({ live: true }),
+  setMemory: (memory) => set({ memory }),
   reset: () => set({ ...EMPTY, seen: new Set(), dismissed: new Set() }),
   applyEvent: (e) =>
     set((s) => {
@@ -145,6 +173,7 @@ export const useBanyan = create<BanyanState>((set) => ({
       const runs = { ...s.runs };
       let alerts = s.alerts;
       let bills = s.bills;
+      let memory = s.memory;
       let toolsLoaded = s.toolsLoaded;
       const t = Date.parse(e.ts);
       const firstTs = s.firstTs === null ? t : Math.min(s.firstTs, t);
@@ -152,8 +181,10 @@ export const useBanyan = create<BanyanState>((set) => ({
 
       // System Map: count every hop; animate only live ones.
       const hops = flowsFor(e);
-      let { flows, edgeCounts, history, marks } = s;
+      let { flows, edgeCounts, history, marks, trail } = s;
       if (hops.length) {
+        const label = describe(e);
+        trail = [...trail, ...hops.map(([from, to, gold], i) => ({ id: `${e.id}-${i}`, t, from, to, gold, label }))].slice(-300);
         edgeCounts = { ...edgeCounts };
         hops.forEach(([a, b]) => { edgeCounts[`${a}>${b}`] = (edgeCounts[`${a}>${b}`] ?? 0) + 1; });
         if (s.live) {
@@ -176,6 +207,9 @@ export const useBanyan = create<BanyanState>((set) => ({
       }
 
       switch (e.type) {
+        case "memory_updated":
+          memory = (p.facts as string[]) ?? [];
+          break;
         case "bill_tracked":
           bills = [...bills, {
             id: p.bill_id as string, payee: (p.payee as string) ?? "", amount: (p.amount as string) ?? "",
@@ -259,7 +293,7 @@ export const useBanyan = create<BanyanState>((set) => ({
             };
           break;
       }
-      return { seen, nodes, approvals, runs, alerts, bills, toolsLoaded, flows, edgeCounts, history, marks,
+      return { seen, nodes, approvals, runs, alerts, bills, memory, toolsLoaded, flows, edgeCounts, history, marks, trail,
         firstTs, lastTs };
     }),
 }));

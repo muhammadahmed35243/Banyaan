@@ -27,16 +27,38 @@ class Subtask(BaseModel):
 
 
 class WatchSpec(BaseModel):
-    source: str = Field(default="email", description="only 'email' is supported")
+    source: str = Field(default="email", description="'email' (the user's inbox) or 'service' (a connected service)")
+    service: str | None = Field(default=None, description="for source 'service': e.g. google_classroom, github")
+    request: str | None = Field(default=None, description="for a custom service only: the GET path to poll")
+    every_min: int | None = Field(default=None, description="how often to check, in minutes (default 5 for services)")
     condition: str = Field(description="what counts as a match, e.g. 'about a payment, invoice or bill'")
     forward_to: str | None = Field(default=None, description="email address to send each alert to, "
                                    "ONLY if the user asked to be mailed/forwarded at an address")
+
+
+class FlowEdit(BaseModel):
+    watch_id: str = Field(description="id of a running flow from the session context")
+    action: str = Field(description="'update' | 'pause' | 'resume' | 'stop'")
+    condition: str | None = Field(default=None, description="for update: the FULL new rule (old rule + the change)")
+    forward_to: str | None = Field(default=None, description="for update: email address to forward alerts to, "
+                                   "or 'none' to stop forwarding")
+
+
+class ServiceNeed(BaseModel):
+    service: str = Field(description="google_classroom | google_calendar | github | shopify | demo_classroom, or a short "
+                         "lowercase slug for any other API the user names")
+    label: str = Field(description="human name, e.g. 'Google Classroom'")
+    why: str = Field(description="one line: what Banyan will read there, for the human's consent card")
+    base_url: str | None = Field(default=None, description="only for other APIs: its https base URL if known")
 
 
 class PlanOutput(BaseModel):
     subtasks: list[Subtask] = Field(default_factory=list)
     direct_answer: str | None = None
     standing_watch: WatchSpec | None = None
+    flow_edits: list[FlowEdit] = Field(default_factory=list)
+    connect: ServiceNeed | None = None
+    remember: list[str] = Field(default_factory=list, description="durable facts from the user's message")
 
 
 class EmailMatch(BaseModel):
@@ -133,6 +155,30 @@ PLANNER_PROMPT = (
     "put it in forward_to); return no subtasks and no direct_answer. A "
     "watcher agent then runs continuously (it will ask the human for mailbox access itself). "
     "Never use standing_watch for one-off questions. "
+    "0a) SESSION: you may get the session context (remembered facts, the conversation, flows "
+    "still running, bills). Use it: resolve 'it', 'that', 'those', 'the watcher', 'same but "
+    "cheaper' from it, and apply remembered facts (budget, city, email, preferences) to new "
+    "goals. If the user asks to CHANGE, PAUSE, RESUME or STOP a running flow ('also include "
+    "salary emails', 'pause the payment watcher', 'stop it', 'also email alerts to x@y.com'), "
+    "fill flow_edits with that flow's id (for update, give the FULL new condition) and set "
+    "direct_answer to a one-line confirmation; do NOT create a new standing_watch for it. If "
+    "they ask to redo an earlier answer with a change, plan that earlier goal again with the "
+    "change, self-contained. REMEMBER: put durable facts the user states about themselves or "
+    "their preferences in remember, one short line each as 'Topic: value' (e.g. 'Budget: under "
+    "15k PKR', 'Email: ali@x.com', 'City: Lahore'); restate a changed fact in full. Never "
+    "remember secrets or passwords. Return remember even when you also return subtasks. "
+    "0c) THE USER'S OWN ACCOUNTS: when the goal needs the user's private data in a service "
+    "(their Google Classroom classes or assignments, their calendar, their GitHub, or any API "
+    "they name), and it is not listed under 'Connected services', set connect (Banyan asks the "
+    "human for access) AND still plan as if it will be connected: researchers that read it "
+    "with call_service, never web_search. 'demo classroom' means service demo_classroom. For "
+    "'whenever / any time / tell me when' something new appears there, use standing_watch with "
+    "source 'service' and that service (plus connect if not connected yet). "
+    "0d) SOLVING THE USER'S ASSIGNMENT / HOMEWORK / QUIZ PREP from a connected service: t1 "
+    "researcher reads that assignment with call_service and returns its FULL instructions word for "
+    "word (title, course, due date, every question); t2 writer (depends_on t1) writes the complete "
+    "solution. Pick the assignment the user means from the session context ('the new one', 'the "
+    "linear algebra one'). Never plan to submit or upload anything. "
     "0b) DO the work, don't describe it: 'make me a system / app / bot that writes X' means "
     "PRODUCE X now (e.g. write the actual story), not explain how to build software. Creative "
     "work (stories, poems, posts, emails, plans) needs no research: use writer subtasks only, "
@@ -174,7 +220,16 @@ ROLE_PROMPTS = {
               "title, then 300-600 words that sound human - concrete sensory detail, varied sentence "
               "length, natural dialogue, a little humour, no cliches ('little did they know', "
               "'tapestry', 'a lesson they would never forget'), no moral spelled out. The ~200-word "
-              "limit does not apply to creative pieces. ",
+              "limit does not apply to creative pieces. For an ASSIGNMENT, problem set, quiz prep or code "
+              "task: produce the COMPLETE deliverable, answering every question in order. LAYOUT (Markdown): "
+              "each question under a heading '### Question N' followed by the question text in italics; "
+              "the working as a numbered list (one step per item); math in LaTeX: inline math ONLY with single "
+              "$...$ inside sentences, and every matrix or long equation as display math ALONE on its own "
+              "line as $$...$$ (never $$ inside a sentence or list item); then a line "
+              "starting '**Answer:**'. Separate questions with a blank line. Complete runnable code goes "
+              "in fenced code blocks. "
+              "Start with a title line (course, assignment, due date). No word limit. Do not submit or "
+              "send it anywhere: the user reviews and submits it themselves. ",
 }
 ROLE_TOOLS = {  # which built-in tools each specialised role may use
     "researcher": ("web_search", "fetch_url", "image_search", "current_time"),
@@ -206,7 +261,7 @@ SYNTH_PROMPT = (
     "start with a one-line bold summary, then short sections; use a table when comparing "
     "items; keep any ![image](url) lines and source links from the results (max 4 images); "
     "about 250 words - EXCEPT creative pieces (stories, poems, letters): include each one "
-    "complete and unchanged under its own heading, never summarise them. Be honest: if a result says something was NOT done (e.g. email not "
+    "complete and unchanged under its own heading, never summarise them; the same for assignment solutions, essays and code - keep them whole. Be honest: if a result says something was NOT done (e.g. email not "
     "sent), say so plainly. Give a confidence between 0 and 1 reflecting the weakest evidence."
 )
 
@@ -309,8 +364,26 @@ class OpenAILLM:
 
             return _now()
 
+        @function_tool
+        async def call_service(service: str, path: str, method: str = "GET", query_json: str = "{}",
+                               body_json: str = "") -> str:
+            """Call one of the user's connected services (e.g. google_classroom, github) with their
+            credential, added on the server. `path` is relative to the service, e.g. /v1/courses.
+            query_json: JSON object of query parameters. Only GET is free; any change waits for a human."""
+            import json as _json
+
+            from ..tools.registry import call_service as _call
+
+            run_id, agent_id = CURRENT.get()
+            try:
+                params = _json.loads(query_json or "{}")
+                body = _json.loads(body_json) if body_json else None
+            except ValueError:
+                return "ERROR: query_json/body_json must be valid JSON objects"
+            return await _call(service, path, method, params, body, run_id=run_id, agent_id=agent_id)
+
         self._tools = {"web_search": web_search, "fetch_url": fetch_url, "image_search": image_search,
-                       "send_email": send_email,
+                       "send_email": send_email, "call_service": call_service,
                        "calculate": calculate, "current_time": current_time}
 
     async def _run(self, name, prompt, output_type, text, tools=None):
@@ -373,7 +446,7 @@ class OpenAILLM:
                     raise
 
     async def plan(self, goal, depth, history=""):
-        text = goal if not history else f"Conversation so far in this session:\n{history}\n\nNew goal: {goal}"
+        text = goal if not history else f"SESSION CONTEXT\n{history}\n\nNEW MESSAGE FROM THE USER: {goal}"
         return await self._run("Planner", PLANNER_PROMPT, PlanOutput, text)
 
     async def _generated_tools(self):
@@ -403,10 +476,22 @@ class OpenAILLM:
 
     async def work(self, goal, context, role="researcher"):
         text = goal if not context else f"{goal}\n\nContext from earlier tasks:\n{context}"
-        tools = [self._tools[n] for n in ROLE_TOOLS.get(role, ROLE_TOOLS["researcher"])]
-        names = list(ROLE_TOOLS.get(role, ROLE_TOOLS["researcher"])) + [t.name for t in tools[len(ROLE_TOOLS.get(role, ())):]]
+        from ..connectors import services
+
+        names = list(ROLE_TOOLS.get(role, ROLE_TOOLS["researcher"]))
+        conn = await services.connected_list() if role in ("researcher", "analyst", "worker") else []
+        if conn:  # the user's own accounts: read them directly instead of searching the web
+            names.append("call_service")
+        tools = [self._tools[n] for n in names]
         prompt = (ROLE_PROMPTS.get(role, ROLE_PROMPTS["researcher"]) + WORKER_PROMPT
                   + f" The ONLY tools you have are: {', '.join(names)}. Never call any other tool.")
+        if conn:
+            prompt += (" The user's CONNECTED SERVICES (use call_service for anything about the user's own "
+                       "data there; never web_search it): " + "; ".join(
+                           f"{c['service']} ({c['label']}): {c['paths']}" for c in conn)
+                       + ". List first (e.g. courses), then fetch details per item. Quote real names, dates "
+                         "and titles from the responses; never invent them. When asked for an assignment, "
+                         "copy its full description/instructions VERBATIM (every question), not a summary.")
         return await self._run(role.capitalize(), prompt, WorkerOutput, text,
                                tools + await self._generated_tools())
 
@@ -445,6 +530,37 @@ class MockLLM:
     async def plan(self, goal, depth, history=""):
         await asyncio.sleep(1.0)
         g = goal.lower()
+        # Session memory and flow edits (keyword-driven stand-ins for what the real Planner infers).
+        remember = [f"Budget: {m.group(1)}" for m in [re.search(r"my budget is ([^.,;]+)", g)] if m]
+        watch_ids = re.findall(r"id=(\w+) watcher", history)
+        if depth == 0 and watch_ids and any(k in g for k in ("pause", "resume", "stop", "also include", "forward")):
+            wid = watch_ids[-1]
+            if "pause" in g:
+                edit = FlowEdit(watch_id=wid, action="pause")
+            elif "resume" in g:
+                edit = FlowEdit(watch_id=wid, action="resume")
+            elif "stop" in g:
+                edit = FlowEdit(watch_id=wid, action="stop")
+            else:
+                to = re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", goal)
+                extra = g.split("also include", 1)[1].strip(" .") if "also include" in g else None
+                cond = re.search(r"watcher \[\w+\]: emails ([^;\n]+)", history)
+                edit = FlowEdit(watch_id=wid, action="update",
+                                condition=f"{cond.group(1)} or {extra}" if extra and cond else None,
+                                forward_to=to.group(0) if to else None)
+            return PlanOutput(flow_edits=[edit], remember=remember, direct_answer="(mock) Updated your flow."), 200
+        if depth == 0 and "classroom" in g:
+            need = None if ("- demo_classroom:" in history or "- google_classroom:" in history) else ServiceNeed(
+                service="demo_classroom" if "demo" in g else "google_classroom", label="Google Classroom",
+                why="read your classes, assignments and announcements")
+            name = need.service if need else ("demo_classroom" if "- demo_classroom:" in history else "google_classroom")
+            if any(k in g for k in ("any time", "whenever", "tell me when", "notify me")):
+                return PlanOutput(connect=need, standing_watch=WatchSpec(
+                    source="service", service=name, condition="assignments or announcements")), 200
+            return PlanOutput(connect=need, subtasks=[Subtask(id="t1", goal=f"List my classes and upcoming "
+                                                              f"assignments from {name}")]), 200
+        if depth == 0 and remember and len(g) < 60:
+            return PlanOutput(remember=remember, direct_answer="(mock) Noted."), 150
         if depth == 0 and any(k in g for k in ("any time", "anytime", "whenever", "notify me", "let me know when")):
             cond = "related to a payment, invoice, bill or transaction" if "pay" in g else goal
             to = re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", goal)
@@ -521,6 +637,10 @@ class MockLLM:
         import re
 
         await asyncio.sleep(0.5)
+        if not any(k in condition.lower() for k in ("pay", "bill", "invoice")):
+            # Service items ("new assignments"): every new item matches.
+            return EmailMatches(matches=[EmailMatch(index=i, summary=f"(mock) {m['subject']} ({m['from']})")
+                                         for i, m in enumerate(emails)]), 200
         keys = ("payment", "invoice", "paid", "bill", "receipt", "transaction", "charged", "refund", "due")
         out = []
         for i, m in enumerate(emails):

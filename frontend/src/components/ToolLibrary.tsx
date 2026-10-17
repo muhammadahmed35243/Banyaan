@@ -20,7 +20,7 @@ function Lineage({ t }: { t: Tool }) {
       <span className={chip}>🔧 Builder</span>→
       <span className={chip}>🧪 Tests {t.tests_passed ?? "?"}/{t.tests_total ?? "?"}</span>→
       <span className={chip}>🛡️ Critic</span>→
-      <span className={`${chip} bg-emerald-900/60 text-emerald-200`}>
+      <span className={`${chip} bg-emerald-100 text-emerald-800`}>
         👤 {t.approved_by ?? "human"}{t.approved_at && ` · ${new Date(t.approved_at).toLocaleDateString()}`}
       </span>
       {(t.composed_from ?? []).length > 0 && (
@@ -49,9 +49,9 @@ export default function ToolLibrary() {
 
   return (
     <>
-      <button onClick={() => setOpen((o) => !o)}
+      <button onClick={() => setOpen((o) => !o)} title="Tools it started with, and tools humans approved"
         className="whitespace-nowrap rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800">
-        🧰 {lib ? `Started with ${lib.started_with} tools · Humans approved ${lib.human_approved}` : "Tools"}
+        🧰 {lib ? `${lib.started_with} tools · ${lib.human_approved} approved` : "Tools"}
       </button>
       {open && lib && (
         <div className="absolute right-4 top-14 z-20 max-h-[75vh] w-[28rem] overflow-auto rounded-xl border border-slate-700 bg-slate-950 p-3 shadow-2xl">
@@ -61,20 +61,20 @@ export default function ToolLibrary() {
               <span className="font-mono">{t.name}</span><span className="text-right text-slate-500">{t.description}</span>
             </div>
           ))}
-          <h3 className={`${h3} text-cyan-300`}>Connectors (use a vault secret)</h3>
+          <h3 className={`${h3} text-cyan-700`}>Connectors (use a vault secret)</h3>
           {(lib.connectors ?? []).map((t) => (
             <div key={t.name} className="mb-1 flex justify-between gap-3 text-xs">
-              <span className="font-mono">{t.name} <span className="text-yellow-400">🔐 {t.secret}</span></span>
+              <span className="font-mono">{t.name} <span className="text-yellow-600">🔐 {t.secret}</span></span>
               <span className="text-right text-slate-500">{t.description}</span>
             </div>
           ))}
-          <h3 className={`${h3} text-purple-300`}>Grown by agents, approved by humans ({lib.grown.length})</h3>
+          <h3 className={`${h3} text-purple-700`}>Grown by agents, approved by humans ({lib.grown.length})</h3>
           {lib.grown.length === 0 && <p className="text-xs text-slate-500">None yet. Try 📋 Script → 🔧 Toolsmith demo.</p>}
           {lib.grown.map((t) => (
-            <div key={t.name} className="mb-2 rounded border border-purple-900 bg-slate-900 p-2 text-xs">
+            <div key={t.name} className="mb-2 rounded border border-purple-200 bg-slate-900 p-2 text-xs">
               <div className="flex justify-between">
                 <span className="font-mono">{t.name} v{t.version}</span>
-                <span className={t.status === "active" ? "text-emerald-400" : "text-slate-500"}>{t.status}</span>
+                <span className={t.status === "active" ? "text-emerald-600" : "text-slate-500"}>{t.status}</span>
               </div>
               <div className="text-slate-400">{t.description}</div>
               <div className="mt-1 text-slate-500">

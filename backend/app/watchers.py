@@ -6,6 +6,7 @@ after its goal's request has ended. Serverless can't keep a process alive, so th
 lives in the DB and is woken by short `tick` requests (sent by the open browser every few
 seconds; a cron job could call the same endpoint). Each tick reads only NEW mail, lets the
 LLM judge it against the rule, and raises alerts. Other goals keep running in parallel."""
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -38,6 +39,8 @@ async def start(ctx, parent, spec) -> str:
     message for the parent; raises HumanRejected / Pruned like any branch."""
     from .orchestrator.runner import HumanRejected, Node, emit, set_status
 
+    if getattr(spec, "source", "email") == "service":
+        return await start_service(ctx, parent, spec)
     node = Node(f"{parent.id}.watch", parent.id, parent.depth + 1,
                 f"Watch my inbox for emails {spec.condition}", role="watcher")
     await store.upsert_agent(AgentRow(id=node.id, run_id=ctx.run_id, parent_id=parent.id,
@@ -74,6 +77,56 @@ class SetupFailed(Exception):
     pass
 
 
+async def start_service(ctx, parent, spec) -> str:
+    """A watcher on a connected service (Classroom, GitHub, a custom API). Access was granted on
+    the connect card, so no second card: it takes a first snapshot (no alerts for what is
+    already there) and from then on reports only new items."""
+    from .connectors import services
+    from .orchestrator.runner import HumanRejected, Node, emit
+
+    svc = await services.config(spec.service or "") if spec.service else None
+    label = svc["label"] if svc else (spec.service or "the service")
+    cond = _clean(spec.condition or "") or "new items"
+    node = Node(f"{parent.id}.watch", parent.id, parent.depth + 1, f"Watch {label}: {cond}", role="watcher")
+    await store.upsert_agent(AgentRow(id=node.id, run_id=ctx.run_id, parent_id=parent.id,
+                                      depth=node.depth, role="watcher", goal=node.goal))
+    await emit(ctx, "agent_spawned", node, role="watcher", goal=node.goal, depth=node.depth, status="running_tool")
+    if not svc or not await services.connected(spec.service):
+        await store.set_agent(node.id, status="failed")
+        await emit(ctx, "agent_failed", node, error=f"{label} is not connected")
+        raise HumanRejected(f"{label} is not connected")
+    await emit(ctx, "secret_used", node, name=f"svc:{spec.service}", purpose="first snapshot")
+    await emit(ctx, "tool_call", node, tool="call_service", args={"service": spec.service, "snapshot": True})
+    try:
+        items = await services.snapshot(spec.service, spec.request)
+    except Exception as e:
+        await store.set_agent(node.id, status="failed")
+        await emit(ctx, "agent_failed", node, error=f"Could not read {label}: {e}"[:300])
+        raise HumanRejected(f"could not read {label}") from e
+    await emit(ctx, "tool_result", node, tool="call_service", summary=f"{len(items)} items in {label} now")
+    every = max(1, spec.every_min or 5)
+    watch = WatchRow(id=uuid.uuid4().hex[:12], session_id=ctx.session_id or ctx.run_id, run_id=ctx.run_id,
+                     agent_id=node.id, source="service", service=spec.service, request=spec.request,
+                     condition=cond, credential=f"svc:{spec.service}", seen=[i["id"] for i in items],
+                     # The demo Classroom is checked often, so a live demo shows the alert quickly.
+                     interval_sec=20 if spec.service == "demo_classroom" else every * 60,
+                     forward_to=getattr(spec, "forward_to", None))
+    with Session(engine, expire_on_commit=False) as s:
+        s.add(watch)
+        s.commit()
+    await store.set_agent(node.id, status="watching")
+    await emit(ctx, "agent_status", node, status="watching")
+    await emit(ctx, "watch_started", node, watch_id=watch.id, condition=cond, mode=spec.service)
+    await emit(ctx, "speak", node, role="watcher", text=f"I'm watching {label} now.")
+    kinds = {}
+    for i in items:
+        kinds[i["kind"]] = kinds.get(i["kind"], 0) + 1
+    now = ", ".join(f"{n} {k}{'s' if n != 1 else ''}" for k, n in kinds.items()) or "nothing yet"
+    when = "every 20 s (demo)" if spec.service == "demo_classroom" else f"every {every} min"
+    return (f"A watcher now checks **{label}** {when} for: {cond}. "
+            f"Right now there are {now}; I'll alert you only about new ones.")
+
+
 def _insert(w: WatchRow) -> bool:
     from sqlalchemy.exc import IntegrityError
 
@@ -96,7 +149,8 @@ async def finish_setup(a) -> str:
                  + (f" Each match is emailed to {d['forward_to']}." if d.get("forward_to") else "")
                  + " Alerts will appear here.")
     if await asyncio.to_thread(_get, a.id):
-        return inbox_msg
+        mode = ((await vault.get(d.get("credential", CREDENTIAL))) or {}).get("mode")
+        return inbox_msg.replace("your inbox", "the demo inbox") if mode == "demo" else inbox_msg
     agent, parent = a.agent_id, d.get("parent_id")
     secret = await vault.get(d.get("credential", CREDENTIAL))
     if not secret:
@@ -180,7 +234,7 @@ def _progress(w: WatchRow) -> None:
     """Store a check's progress without touching status (a human may have paused meanwhile)."""
     with Session(engine) as s:
         s.execute(update(WatchRow).where(WatchRow.id == w.id)
-                  .values(cursor=w.cursor, checks=w.checks, alerts=w.alerts))
+                  .values(cursor=w.cursor, checks=w.checks, alerts=w.alerts, seen=w.seen))
         s.commit()
 
 
@@ -189,6 +243,10 @@ async def tick(session_id: str | None) -> dict:
 
     checked = 0
     for w in await asyncio.to_thread(_active, session_id):
+        if w.interval_sec and w.last_tick_at:  # services are polled less often than the inbox
+            last = w.last_tick_at if w.last_tick_at.tzinfo else w.last_tick_at.replace(tzinfo=timezone.utc)
+            if (_utcnow() - last).total_seconds() < w.interval_sec:
+                continue
         if not await asyncio.to_thread(_claim, w.id):
             continue
         agent = await store.get_agent(w.agent_id)
@@ -207,14 +265,19 @@ async def _check(w: WatchRow) -> None:
 
     await _ev(w.run_id, "agent_status", w.agent_id, status="running_tool")
     try:
-        secret = await vault.get(w.credential)
-        if not secret:
-            await _ev(w.run_id, "log", w.agent_id, message="Credential was removed from the vault; stopping")
-            await stop(w, "failed")
-            return
-        await _ev(w.run_id, "secret_used", w.agent_id, name=w.credential, purpose="check inbox")
-        await _ev(w.run_id, "tool_call", w.agent_id, tool="email_inbox", args={"mode": secret.get("mode")})
-        mails, w.cursor = await email_inbox.fetch_new(secret, w.cursor)
+        if w.source == "service":
+            mails = await _fetch_service(w)
+            if mails is None:
+                return
+        else:
+            secret = await vault.get(w.credential)
+            if not secret:
+                await _ev(w.run_id, "log", w.agent_id, message="Credential was removed from the vault; stopping")
+                await stop(w, "failed")
+                return
+            await _ev(w.run_id, "secret_used", w.agent_id, name=w.credential, purpose="check inbox")
+            await _ev(w.run_id, "tool_call", w.agent_id, tool="email_inbox", args={"mode": secret.get("mode")})
+            mails, w.cursor = await email_inbox.fetch_new(secret, w.cursor)
         w.checks += 1
         if mails:
             await _ev(w.run_id, "tool_result", w.agent_id, tool="email_inbox", summary=f"{len(mails)} new email(s)")
@@ -232,11 +295,12 @@ async def _check(w: WatchRow) -> None:
                 await _ev(w.run_id, "alert", w.agent_id, watch_id=w.id, alert_id=aid, sender=mail["from"],
                           subject=mail["subject"], summary=m.summary, amount=m.amount)
                 await _ev(w.run_id, "speak", w.agent_id, role="watcher",
-                          text=f"Payment alert: {m.summary}" if "pay" in w.condition else f"Alert: {m.summary}")
+                          text=f"Payment alert: {m.summary}" if "pay" in w.condition and w.source != "service"
+                          else f"Alert: {m.summary}")
                 await _notify(w, mail["subject"] or "Banyan alert", m.summary + (f" ({m.amount})" if m.amount else ""))
                 if w.forward_to:
                     await _forward(w, mail, m)
-                if m.action in ACTIONS:
+                if m.action in ACTIONS and w.source != "service":
                     await _propose(w, aid, m, mail)
             if not hits:
                 await _ev(w.run_id, "log", w.agent_id, message=f"{len(mails)} new email(s); none matched")
@@ -247,6 +311,27 @@ async def _check(w: WatchRow) -> None:
     fresh = await asyncio.to_thread(_get, w.id)
     if fresh and fresh.status == "active":
         await _ev(w.run_id, "agent_status", w.agent_id, status="watching")
+
+
+async def _fetch_service(w: WatchRow) -> list[dict] | None:
+    """New items on a connected service since the last check, shaped like emails for the
+    classifier. None = the watcher was stopped (access removed)."""
+    from .connectors import services
+
+    if not await services.connected(w.service or ""):
+        await _ev(w.run_id, "log", w.agent_id, message="The service was disconnected; stopping")
+        await stop(w, "failed")
+        return None
+    await _ev(w.run_id, "secret_used", w.agent_id, name=w.credential, purpose="check for new items")
+    await _ev(w.run_id, "tool_call", w.agent_id, tool="call_service", args={"service": w.service, "poll": True})
+    items = await services.snapshot(w.service, w.request)
+    seen = list(w.seen or [])
+    new = [i for i in items if i["id"] not in set(seen)]
+    w.seen = (seen + [i["id"] for i in new])[-3000:]
+    if not new:
+        await _ev(w.run_id, "tool_result", w.agent_id, tool="call_service", summary="nothing new")
+    return [{"from": i["where"] or w.service, "subject": f"New {i['kind']}: {i['title']}",
+             "snippet": (f"Due {i['due']}. " if i.get("due") else "") + (i.get("text") or "")} for i in new]
 
 
 # ---------- follow-up actions (proposed by the watcher, executed only after a human approves) ----------
@@ -353,6 +438,93 @@ def _get(watch_id: str) -> WatchRow | None:
 def _by_agent(agent_id: str) -> WatchRow | None:
     with Session(engine, expire_on_commit=False) as s:
         return s.exec(select(WatchRow).where(WatchRow.agent_id == agent_id)).first()
+
+
+# ---------- editing a running flow by asking ("also include salary emails", "pause it") ----------
+
+
+def _describe(condition: str, forward_to: str | None) -> str:
+    return f"Emails {condition}" + (f"; alerts emailed to {forward_to}" if forward_to else "; alerts shown here only")
+
+
+async def edit_flow(session_id: str | None, run_id: str, edit) -> str:
+    """Apply one FlowEdit from the Planner. Narrowing or stopping applies at once (the human
+    just asked for it). Adding email forwarding gives the flow a new power (it will send mail),
+    so that waits for an approval card; nothing blocks while it waits."""
+    import asyncio
+
+    w = await asyncio.to_thread(_get, edit.watch_id)
+    if not w or (session_id and w.session_id != session_id) or w.status == "stopped":
+        return f"I couldn't find a running flow with id {edit.watch_id}."
+    if edit.action in ("pause", "resume"):
+        await control(w.agent_id, edit.action)
+        return f"{'Paused' if edit.action == 'pause' else 'Resumed'} the watcher for emails {w.condition}."
+    if edit.action == "stop":
+        await stop(w, "pruned")
+        await _ev(w.run_id, "log", w.agent_id, message="Stopped at the user's request")
+        return f"Stopped the watcher for emails {w.condition}."
+    if edit.action != "update":
+        return f"Unknown change '{edit.action}'."
+
+    new_cond = _clean(edit.condition or "") or w.condition
+    fwd = (edit.forward_to or "").strip()
+    new_fwd = None if fwd.lower() in ("none", "no", "off") else (fwd or w.forward_to)
+    msgs = []
+    if new_cond != w.condition:
+        old = w.condition
+        await asyncio.to_thread(_patch, w.id, condition=new_cond)
+        await store.set_agent(w.agent_id, goal=f"Watch my inbox for emails {new_cond}")
+        await _ev(w.run_id, "agent_status", w.agent_id, status="watching" if w.status == "active" else w.status,
+                  goal=f"Watch my inbox for emails {new_cond}")
+        await _ev(w.run_id, "flow_updated", w.agent_id, watch_id=w.id, field="condition", before=old, after=new_cond)
+        msgs.append(f"The watcher now looks for emails {new_cond}.")
+    if new_fwd != w.forward_to:
+        if new_fwd is None:  # removing a power needs no approval
+            await asyncio.to_thread(_patch, w.id, forward_to=None)
+            await _ev(w.run_id, "flow_updated", w.agent_id, watch_id=w.id, field="forward_to",
+                      before=w.forward_to, after=None)
+            msgs.append("It no longer emails alerts.")
+        else:
+            title = f"Let the watcher email alerts to {new_fwd}"
+            details = {"watch_id": w.id, "forward_to": new_fwd, "session_id": w.session_id,
+                       "result": f"**Before:** {_describe(new_cond, w.forward_to)}\n\n"
+                                 f"**After:** {_describe(new_cond, new_fwd)}\n\n"
+                                 "Each matching alert will be sent from your connected Gmail."}
+            approval_id = await store.create_approval(run_id=run_id, agent_id=w.agent_id, kind="flow_edit",
+                                                      title=title, details=details, risk="medium")
+            await _ev(run_id, "needs_human", w.agent_id, approval_id=approval_id, kind="flow_edit", title=title,
+                      risk="medium", details=details)
+            msgs.append(f"Emailing alerts to {new_fwd} needs your OK: approve the card in the inbox.")
+    return " ".join(msgs) or "That flow already works that way; nothing changed."
+
+
+def _clean(condition: str) -> str:
+    """'emails about salary' -> 'about salary' (it is always shown after the word 'emails')."""
+    c = condition.strip().rstrip(".")
+    return re.sub(r"^(?:e-?mails?|messages?)\s+", "", c, flags=re.I)
+
+
+def _patch(watch_id: str, **fields) -> None:
+    with Session(engine) as s:
+        s.execute(update(WatchRow).where(WatchRow.id == watch_id).values(**fields))
+        s.commit()
+
+
+async def apply_flow_edit(approval) -> None:
+    """Called after a human decides a flow_edit card."""
+    import asyncio
+
+    d = approval.details | (approval.edited_payload or {})
+    await _ev(approval.run_id, "human_decision", approval.agent_id, approval_id=approval.id,
+              decision=approval.status, note=approval.note)
+    w = await asyncio.to_thread(_get, d["watch_id"])
+    if approval.status == "rejected" or not w or w.status == "stopped":
+        await _ev(approval.run_id, "log", approval.agent_id, message=f"Flow change not applied: {approval.title}")
+        return
+    await asyncio.to_thread(_patch, w.id, forward_to=d["forward_to"])
+    await _ev(w.run_id, "flow_updated", w.agent_id, watch_id=w.id, field="forward_to",
+              before=w.forward_to, after=d["forward_to"])
+    await _ev(w.run_id, "log", w.agent_id, message=f"Alerts will now be emailed to {d['forward_to']}")
 
 
 async def stop(w: WatchRow, status: str = "pruned") -> None:

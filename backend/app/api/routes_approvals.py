@@ -37,6 +37,11 @@ async def decide(approval_id: str, body: DecideIn) -> dict:
         raise HTTPException(400, "this build was blocked by the security checks and can only be rejected")
     if current.kind == "watch_setup" and body.decision != "rejected" and not await vault.info(current.details.get("credential", "gmail")):
         raise HTTPException(400, "provide a credential (or choose the demo inbox) to approve this")
+    if current.kind == "connect_service" and body.decision != "rejected":
+        from ..connectors import services
+
+        if not await services.connected(current.details.get("service", "")):
+            raise HTTPException(400, "connect the service first (sign in, or paste a token)")
     if current.kind == "connect_google" and body.decision != "rejected" and not await vault.info("google"):
         raise HTTPException(400, "sign in with Google first")
     if current.risk == "high" and body.decision != "rejected" and not body.confirm:
@@ -46,6 +51,8 @@ async def decide(approval_id: str, body: DecideIn) -> dict:
         raise HTTPException(409, "already decided")
     if row.kind == "watch_action":  # nobody is waiting on this one: run the approved action now
         await watchers.execute_action(row)
+    if row.kind == "flow_edit":  # also non-blocking: apply the approved change now
+        await watchers.apply_flow_edit(row)
     if row.kind == "watch_setup":  # finish it here too, in case the goal's request timed out
         await watchers.resume_setup(row)
     return _out(row)

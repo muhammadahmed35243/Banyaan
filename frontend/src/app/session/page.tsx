@@ -32,7 +32,7 @@ function MissionControl() {
 
   if (!sessionId) return null;
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-screen flex-col overflow-hidden">
       <GoalInput sessionId={sessionId} onNewSession={() => router.push(`/session?id=${newId()}`)} />
       <div className="flex min-h-0 flex-1">
         <Conversation sessionId={sessionId} />
@@ -40,7 +40,7 @@ function MissionControl() {
           <div className="flex gap-1 border-b border-slate-800 px-4 py-1.5 text-xs">
             {(["tree", "map", "timeline"] as const).map((v) => (
               <button key={v} onClick={() => setView(v)}
-                className={`rounded px-3 py-1 ${view === v ? "bg-slate-800 text-slate-100" : "text-slate-400 hover:text-slate-200"}`}>
+                className={`rounded-lg px-3 py-1 font-medium transition ${view === v ? "bg-af-soft text-af-blue" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"}`}>
                 {v === "tree" ? "🌳 Agent tree" : v === "map" ? "🛰️ System map" : "📊 Timeline"}
               </button>
             ))}

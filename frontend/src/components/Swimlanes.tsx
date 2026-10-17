@@ -82,7 +82,7 @@ export default function Swimlanes() {
                 })}
                 {(marks[n.id] ?? []).filter((m) => m.t >= start).map((m, i) => (
                   <span key={i} title={m.label} className="absolute -top-0.5 text-[10px] leading-none"
-                    style={{ left: x(m.t) }}>{m.kind === "alert" ? "🔔" : <b className="text-amber-300">▲</b>}</span>
+                    style={{ left: x(m.t) }}>{m.kind === "alert" ? "🔔" : <b className="text-amber-700">▲</b>}</span>
                 ))}
               </div>
             </div>
