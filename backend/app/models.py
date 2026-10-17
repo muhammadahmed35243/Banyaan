@@ -147,6 +147,7 @@ class WatchRow(SQLModel, table=True):
     source: str = "email"
     condition: str = ""  # natural-language rule, e.g. "related to a payment"
     credential: str = "gmail"
+    forward_to: str | None = None  # also email each alert here (consented on the setup card)
     cursor: int = 0  # last email id / IMAP UID already examined
     status: str = "active"  # active | paused | stopped
     checks: int = 0

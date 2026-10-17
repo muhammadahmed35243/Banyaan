@@ -1,7 +1,8 @@
 """Read-only email connector used by watcher agents.
 
-Two modes, chosen by the credential stored in the vault:
+Modes, chosen by the credential stored in the vault:
 - "demo": reads the demo_emails table (for presentations; filled via /api/demo/emails)
+- "google": reads Gmail through the Gmail API after "Sign in with Google" (connectors/google.py)
 - "imap": reads a real mailbox over IMAP, e.g. Gmail with an app password.
   Mailbox is opened read-only and messages are fetched with BODY.PEEK, so nothing is
   marked as read and nothing is ever sent or deleted.
@@ -11,6 +12,7 @@ import asyncio
 import email
 import imaplib
 import re
+import time
 from email.header import decode_header, make_header
 
 from sqlmodel import Session, func, select
@@ -91,14 +93,39 @@ def _imap_new(secret: dict, cursor: int) -> tuple[list[dict], int]:
 # ---------- public API ----------
 
 
+async def _google_secret() -> dict:
+    from .. import vault
+
+    g = await vault.get("google")
+    if not g:
+        raise RuntimeError("Google sign-in missing from the vault; sign in again")
+    return g
+
+
+def _google_new(g: dict, cursor: int) -> tuple[list[dict], int]:
+    from . import google
+
+    mails = google.new_messages(g, cursor, MAX_PER_CHECK)
+    return mails, (mails[-1]["id"] if mails else cursor)
+
+
 async def latest_cursor(secret: dict) -> int:
     """Where to start watching: only mail that arrives from now on counts."""
-    if secret.get("mode") == "imap":
+    mode = secret.get("mode")
+    if mode == "google":  # cursor = unix time; check the sign-in works now, not on the first tick
+        from . import google
+
+        await asyncio.to_thread(google.access_token, await _google_secret())
+        return int(time.time())
+    if mode == "imap":
         return await asyncio.to_thread(_imap_latest, secret)
     return await asyncio.to_thread(_demo_latest)
 
 
 async def fetch_new(secret: dict, cursor: int) -> tuple[list[dict], int]:
-    if secret.get("mode") == "imap":
+    mode = secret.get("mode")
+    if mode == "google":
+        return await asyncio.to_thread(_google_new, await _google_secret(), cursor)
+    if mode == "imap":
         return await asyncio.to_thread(_imap_new, secret, cursor)
     return await asyncio.to_thread(_demo_new, cursor)

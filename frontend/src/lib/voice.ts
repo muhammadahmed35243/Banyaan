@@ -93,6 +93,7 @@ function speakBrowser(text: string, role: Role) {
 const NEEDS_HUMAN_LINE: Record<string, string> = {
   new_tool: "A new tool needs your approval.",
   watch_setup: "A watcher needs access to your inbox.",
+  connect_google: "Please sign in with Google so I can send this email.",
   risky_action: "This action needs your click before I continue.",
   low_confidence: "I'm not sure about one answer. Please check it.",
   budget: "A branch is over its budget.",

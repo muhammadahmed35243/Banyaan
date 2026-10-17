@@ -73,7 +73,7 @@ async def list_watches(session_id: str) -> list[dict]:
 
 
 class CredentialIn(BaseModel):
-    mode: str  # "imap" (real mailbox) | "demo"
+    mode: str  # "google" (after Sign in with Google) | "imap" (app password) | "demo"
     email: str | None = None
     app_password: str | None = None
     host: str | None = None
@@ -107,6 +107,11 @@ async def provide_credential(approval_id: str, body: CredentialIn) -> dict:
     name = a.details.get("credential", "gmail")
     if body.mode == "demo":
         await vault.put(name, {"mode": "demo"}, "Demo inbox")
+    elif body.mode == "google":  # reuse an existing "Sign in with Google"
+        g = await vault.info("google")
+        if not g:
+            raise HTTPException(400, "sign in with Google first")
+        await vault.put(name, {"mode": "google"}, f"Gmail: {g['label']}")
     elif body.mode == "imap":
         if not body.email or not body.app_password:
             raise HTTPException(400, "email and app password are required")
@@ -114,11 +119,12 @@ async def provide_credential(approval_id: str, body: CredentialIn) -> dict:
                   "app_password": body.app_password.replace(" ", ""), "host": body.host or "imap.gmail.com"}
         await vault.put(name, secret, body.email.strip())
     else:
-        raise HTTPException(400, "mode must be imap or demo")
+        raise HTTPException(400, "mode must be google, imap or demo")
     await _save_ntfy(body.ntfy_topic)
     row = await store.decide(approval_id, "approved", "credential provided", None)
     if not row:
         raise HTTPException(409, "already decided")
+    await watchers.resume_setup(row)  # in case the goal's request already timed out
     return {"ok": True, "stored": name}
 
 
@@ -126,7 +132,7 @@ async def provide_credential(approval_id: str, body: CredentialIn) -> dict:
 async def vault_list() -> list[dict]:
     """Names and labels only. Values never leave the server."""
     out = []
-    for n in ("gmail", "notify"):
+    for n in ("gmail", "google", "notify"):
         i = await vault.info(n)
         if i:
             out.append(i)

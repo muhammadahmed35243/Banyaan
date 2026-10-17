@@ -6,6 +6,7 @@ import ApprovalInbox from "@/components/ApprovalInbox";
 import NodeDetails from "@/components/NodeDetails";
 import AgentTree from "@/components/AgentTree";
 import GoalInput from "@/components/GoalInput";
+import Conversation from "@/components/Conversation";
 import SystemMap from "@/components/SystemMap";
 import Swimlanes from "@/components/Swimlanes";
 import { connectSession } from "@/lib/ws";
@@ -34,6 +35,7 @@ function MissionControl() {
     <div className="flex h-screen flex-col">
       <GoalInput sessionId={sessionId} onNewSession={() => router.push(`/?session=${newId()}`)} />
       <div className="flex min-h-0 flex-1">
+        <Conversation sessionId={sessionId} />
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex gap-1 border-b border-slate-800 px-4 py-1.5 text-xs">
             {(["tree", "map", "timeline"] as const).map((v) => (

@@ -19,10 +19,22 @@ Google are not built yet).
 Each agent has its own prompt (`orchestrator/agents.py`) and only sees the tools for its role,
 so a Researcher cannot send email and an Analyst cannot browse.
 
-## 1b. Stay lean: no agents or tools unless needed
+## 1b. Right-sized teams: parallel when it helps, nothing wasted
 
-Every extra agent costs time, tokens and sometimes a human's attention, so Banyan defaults to doing less:
-- The Planner answers directly when no fresh data is needed (1 node), uses ONE researcher for a single lookup (2 nodes), and only fans out when parts are genuinely different lookups that benefit from running in parallel. It never adds setup / verify / summarize steps.
+- The Planner answers directly when no fresh data is needed (1 node) and uses ONE researcher
+  for a single fact. For options, recommendations, comparisons or research it **fans out 2-4
+  researchers in parallel** (one per source / store / angle) plus an **analyst** that waits for
+  them and ranks the results; independent parts of a goal ("email X *and* find cars") run in
+  parallel too. It never adds setup / verify / summarize steps. (Real Gemini, "email … and find
+  good cars under 20 lac": writer ∥ 3 researchers → analyst, 6 agents.)
+- In the tree, an agent that waits for siblings sits below them with dashed **"feeds"** arrows.
+- **Session memory:** every goal in a session sees the last 5 goals and answers, so a follow-up
+  like "which of those is best on fuel?" is understood (and answered without new searches).
+- **Answers** are Markdown (summary line, sections, ranked tables, source links) and can carry
+  **images** from `image_search`. They appear in the **💬 Conversation** panel next to the
+  tree, with live progress while agents work and a follow-up box.
+- **Honest actions:** if Gmail isn't connected, `send_email` asks you to sign in with Google;
+  if it still can't send, the tool says NOT SENT and the answer says so.
 - With one subtask there is nothing to merge, so no synthesis call is made.
 - Workers must try `web_search` / `fetch_url` / `calculate` before asking for a tool.
 - **Tool gate:** when a worker does ask for a tool, a cheap check first decides whether one is truly needed. If existing tools can do it, no Builder/Tester/Critic runs, no approval is requested, and the worker is sent back to use what it has.
@@ -36,8 +48,10 @@ there is a new run in that session, and runs execute **side by side**, each with
 Some goals don't end: "Any time I get an email related to payment, tell me." The Planner
 recognises this (`standing_watch`) and spawns a **Watcher** agent (`app/watchers.py`):
 
-1. The Watcher asks the human for mailbox access with a **credential card**. The human
-   types a Gmail address + app password (or picks the demo inbox). It goes straight into the
+1. The Watcher asks the human for mailbox access with a **credential card**: **Sign in with
+   Google** (OAuth in a popup, `api/routes_auth.py` + `connectors/google.py`, scopes
+   `gmail.readonly` + `gmail.send`; the refresh token is stored as vault secret `google`),
+   an IMAP app password, or the demo inbox. It goes straight into the
    **vault** (`app/vault.py`, Fernet-encrypted with `VAULT_KEY`); the approval, the events
    and the LLM never contain it. Approving without a credential is refused by the API.
 2. The Watcher connects with the read-only **email connector** (`connectors/email_inbox.py`:
@@ -174,7 +188,9 @@ Honest limit: this is process isolation + static analysis, not a kernel jail.
 ## 5. Tools today
 
 Built in (5): `web_search` (SerpAPI), `fetch_url`, `calculate` (safe arithmetic),
-`current_time`, `send_email` (**mock**: logs instead of sending, until Gmail in Phase 4).
+`current_time`, `send_email` (always a high-risk click; sends through your Gmail once you
+signed in with Google, otherwise a mock that only logs; the card says which; mock/test runs
+never send).
 Grown: anything the Toolsmith builds and a human approves; shown in the Tool Library with
 usage count, domains and a disable button. The header reads
 "Started with 5 tools - Humans approved N".
@@ -213,7 +229,7 @@ MOCK_LLM=1 .venv/Scripts/python -m uvicorn  # e2e suites need mock mode app.main
 
 ## 8. Not built yet
 
-Google OAuth (the vault + Gmail via app password are built), sending real email,
+Google Calendar, publishing the Google app (it is in Testing: only listed test users can sign in),
 self-repair, explain/replay modes, scheduling (Phase 7). Verified with real Gemini: planning,
 parallel researchers with live SerpAPI, analyst, synthesis, and a real Toolsmith build
 (Builder retried after failing tests). Free-tier Gemini is slow (a 3-store comparison takes

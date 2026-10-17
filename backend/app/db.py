@@ -13,5 +13,16 @@ else:
                            connect_args={"prepare_threshold": None})
 
 
+# Columns added after a table first shipped (create_all never alters an existing table).
+_ADDED_COLUMNS = [("watches", "forward_to", "VARCHAR")]
+
+
 def init_db() -> None:
+    from sqlalchemy import inspect, text
+
     SQLModel.metadata.create_all(engine)
+    insp = inspect(engine)
+    for table, col, typ in _ADDED_COLUMNS:
+        if col not in {c["name"] for c in insp.get_columns(table)}:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typ}"))

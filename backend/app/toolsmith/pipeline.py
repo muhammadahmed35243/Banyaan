@@ -18,7 +18,7 @@ from .static_check import static_check
 
 MAX_BUILD_ATTEMPTS = 3  # first try + 2 automatic retries
 # A generated tool must never shadow a built-in (it would silently replace e.g. send_email).
-RESERVED_NAMES = {"web_search", "fetch_url", "calculate", "current_time", "send_email"}
+RESERVED_NAMES = {"web_search", "fetch_url", "image_search", "calculate", "current_time", "send_email"}
 
 
 async def _ev(run_id: str, type_: str, agent_id: str | None, parent_id: str | None = None, **payload) -> None:

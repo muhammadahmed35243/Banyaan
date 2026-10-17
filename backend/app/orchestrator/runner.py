@@ -16,7 +16,7 @@ from ..toolsmith import pipeline as toolsmith
 from .agents import CURRENT, LLM, WorkerOutput, get_llm
 
 
-BUILTIN_TOOL_NAMES = ["web_search", "fetch_url", "calculate", "current_time", "send_email"]
+BUILTIN_TOOL_NAMES = ["web_search", "fetch_url", "image_search", "calculate", "current_time", "send_email"]
 
 
 class HumanRejected(Exception):
@@ -29,6 +29,7 @@ class Ctx:
     llm: LLM
     sem: asyncio.Semaphore
     session_id: str | None = None
+    history: str = ""  # earlier goals + answers in this session (the session's memory)
 
 
 @dataclass
@@ -126,12 +127,14 @@ async def llm_call(ctx: Ctx, node: Node, fn, *args):
 
 
 async def run_node(ctx: Ctx, node_id: str, parent_id: str | None, goal: str, depth: int,
-                   context: str = "", plan_first: bool = False, role: str = "researcher") -> str | None:
+                   context: str = "", plan_first: bool = False, role: str = "researcher",
+                   depends_on: list[str] | None = None) -> str | None:
     node = Node(node_id, parent_id, depth, goal, role="planner" if plan_first else role)
     role = node.role
     await store.upsert_agent(AgentRow(id=node.id, run_id=ctx.run_id, parent_id=parent_id,
                                       depth=depth, role=role, goal=goal))
-    await emit(ctx, "agent_spawned", node, role=role, goal=goal, depth=depth, status="queued")
+    await emit(ctx, "agent_spawned", node, role=role, goal=goal, depth=depth, status="queued",
+               depends_on=depends_on or [])
     try:
         return await _solve(ctx, node, context, plan_first)
     except Pruned:
@@ -191,7 +194,7 @@ async def _solve(ctx: Ctx, node: Node, context: str, plan_first: bool) -> str:
 
 async def _plan_and_run(ctx: Ctx, node: Node) -> str:
     await set_status(ctx, node, "thinking")
-    plan = await llm_call(ctx, node, ctx.llm.plan, node.goal, node.depth)
+    plan = await llm_call(ctx, node, ctx.llm.plan, node.goal, node.depth, ctx.history if node.depth == 0 else "")
     await checkpoint(ctx, node)
     if plan.standing_watch and node.depth == 0:
         # A standing goal ("whenever X, tell me"): spawn a long-lived watcher agent.
@@ -213,7 +216,8 @@ async def _plan_and_run(ctx: Ctx, node: Node) -> str:
                 if sid not in started and all(d in results for d in deps):
                     dep_ctx = "\n".join(f"{d}: {results[d]}" for d in deps if results[d])
                     t = asyncio.create_task(run_node(
-                        ctx, f"{node.id}.{sid}", node.id, s.goal, node.depth + 1, dep_ctx, role=s.role))
+                        ctx, f"{node.id}.{sid}", node.id, s.goal, node.depth + 1, dep_ctx, role=s.role,
+                        depends_on=[f"{node.id}.{d}" for d in deps]))
                     running[t] = sid
                     started.add(sid)
             if not running:  # unsatisfiable (cyclic) dependencies
@@ -253,8 +257,27 @@ async def _finish(ctx: Ctx, node: Node, result: str, confidence: float) -> str:
     return result
 
 
+def _session_history(session_id: str, run_id: str, limit: int = 5) -> str:
+    """The last few goals and answers of this session, so follow-ups ('and under 15 lac?') work."""
+    from sqlmodel import Session, select
+
+    from ..db import engine
+    from ..models import EventRow, SessionRun
+
+    with Session(engine) as s:
+        runs = s.exec(select(SessionRun).where(SessionRun.session_id == session_id, SessionRun.run_id != run_id)
+                      .order_by(SessionRun.created_at.desc()).limit(limit)).all()
+        lines = []
+        for r in reversed(runs):
+            fin = s.exec(select(EventRow).where(EventRow.run_id == r.run_id, EventRow.type == "run_finished")).first()
+            answer = (fin.payload.get("result") or "") if fin else "(still running)"
+            lines.append(f"- User: {r.goal}\n  Banyan: {answer[:600]}")
+    return "\n".join(lines)
+
+
 async def run_goal(run_id: str, goal: str, session_id: str | None = None, llm: LLM | None = None) -> str | None:
-    ctx = Ctx(run_id, llm or get_llm(), asyncio.Semaphore(settings.max_parallel_agents), session_id)
+    history = await asyncio.to_thread(_session_history, session_id, run_id) if session_id else ""
+    ctx = Ctx(run_id, llm or get_llm(), asyncio.Semaphore(settings.max_parallel_agents), session_id, history)
     await emit(ctx, "run_started", goal=goal, mock=type(ctx.llm).__name__ == "MockLLM")
     result = await run_node(ctx, f"{run_id}-root", None, goal, 0, plan_first=True)
     await emit(ctx, "run_finished", result=result)

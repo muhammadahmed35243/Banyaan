@@ -7,6 +7,7 @@ router = APIRouter(prefix="/api/tools")
 BUILTIN = [
     {"name": "web_search", "description": "Search the web via SerpAPI", "risk_level": "low"},
     {"name": "fetch_url", "description": "Fetch and clean a web page", "risk_level": "low"},
+    {"name": "image_search", "description": "Find pictures for answers (Google Images)", "risk_level": "low"},
     {"name": "calculate", "description": "Safe arithmetic (min/max/sum/round)", "risk_level": "low"},
     {"name": "current_time", "description": "Current UTC date and time", "risk_level": "low"},
     {"name": "send_email", "description": "Send an email (always needs human approval)", "risk_level": "high"},

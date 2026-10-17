@@ -47,41 +47,103 @@ async def start(ctx, parent, spec) -> str:
     existing = await vault.info(CREDENTIAL)
     await set_status(ctx, node, "waiting_human")
     await emit(ctx, "secret_requested", node, name=CREDENTIAL, have=bool(existing))
+    access = "Read-only. It never deletes or marks mail as read."
+    if spec.forward_to:
+        access += f" It WILL email each matching alert to {spec.forward_to} from your Gmail."
+    else:
+        access += " It never sends mail."
+    # Everything needed to finish the setup goes in the approval, because the human may answer
+    # after this request has timed out; then the request that records the decision finishes it.
     row = await approvals.request(
         ctx.run_id, node.id, "watch_setup", "A watcher wants read-only access to your inbox",
-        {"service": "Gmail", "credential": CREDENTIAL, "condition": spec.condition,
-         "access": "Read-only. It never sends, deletes or marks mail as read.",
-         "interval_sec": settings.watch_interval_sec,
+        {"service": "Gmail", "credential": CREDENTIAL, "condition": spec.condition, "access": access,
+         "forward_to": spec.forward_to, "interval_sec": settings.watch_interval_sec,
+         "session_id": ctx.session_id or ctx.run_id, "parent_id": parent.id,
          "has_credential": bool(existing), "credential_label": existing["label"] if existing else None},
         "medium")
     if row.status == "rejected":
         await set_status(ctx, node, "failed")
         raise HumanRejected(row.note or "inbox access denied")
+    try:
+        return await finish_setup(row)
+    except SetupFailed as e:
+        raise HumanRejected(str(e)) from e
 
-    secret = await vault.get(CREDENTIAL)
+
+class SetupFailed(Exception):
+    pass
+
+
+def _insert(w: WatchRow) -> bool:
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        with Session(engine, expire_on_commit=False) as s:
+            s.add(w)
+            s.commit()
+        return True
+    except IntegrityError:
+        return False
+
+
+async def finish_setup(a) -> str:
+    """Register the watcher of an approved watch_setup card. Idempotent: the watch's id is the
+    approval's id, so the goal's request and the decision request can both call this safely."""
+    import asyncio
+
+    d = a.details
+    inbox_msg = (f"A watcher is now checking your inbox for emails {d['condition']}."
+                 + (f" Each match is emailed to {d['forward_to']}." if d.get("forward_to") else "")
+                 + " Alerts will appear here.")
+    if await asyncio.to_thread(_get, a.id):
+        return inbox_msg
+    agent, parent = a.agent_id, d.get("parent_id")
+    secret = await vault.get(d.get("credential", CREDENTIAL))
     if not secret:
-        raise RuntimeError("approved, but no credential was saved in the vault")
-    await emit(ctx, "secret_used", node, name=CREDENTIAL, purpose="connect to inbox")  # name only, never the value
-    await set_status(ctx, node, "running_tool")
-    await emit(ctx, "tool_call", node, tool="email_inbox", args={"mode": secret.get("mode")})
+        raise SetupFailed("approved, but no credential was saved in the vault")
+    await _ev(a.run_id, "secret_used", agent, parent, name=CREDENTIAL, purpose="connect to inbox")  # name only
+    await store.set_agent(agent, status="running_tool")
+    await _ev(a.run_id, "agent_status", agent, parent, status="running_tool")
+    await _ev(a.run_id, "tool_call", agent, parent, tool="email_inbox", args={"mode": secret.get("mode")})
     try:
         cursor = await email_inbox.latest_cursor(secret)
     except Exception as e:
-        await store.set_agent(node.id, status="failed")
-        await emit(ctx, "agent_failed", node, error=f"Could not open the inbox: {e}"[:300])
-        raise HumanRejected("inbox login failed") from e
+        await store.set_agent(agent, status="failed")
+        await _ev(a.run_id, "agent_failed", agent, parent, error=f"Could not open the inbox: {e}"[:300])
+        raise SetupFailed("inbox login failed") from e
+    watch = WatchRow(id=a.id, session_id=d.get("session_id") or a.run_id, run_id=a.run_id, agent_id=agent,
+                     condition=d["condition"], credential=d.get("credential", CREDENTIAL),
+                     forward_to=d.get("forward_to"), cursor=cursor)
+    if not await asyncio.to_thread(_insert, watch):
+        return inbox_msg  # the other request got there first
+    await store.set_agent(agent, status="watching")
+    await _ev(a.run_id, "agent_status", agent, parent, status="watching")
+    await _ev(a.run_id, "watch_started", agent, parent, watch_id=watch.id, condition=watch.condition,
+              mode=secret.get("mode"))
+    await _ev(a.run_id, "speak", agent, parent, role="watcher",
+              text="I'm watching your inbox now. I'll tell you when something matches.")
+    return inbox_msg.replace("your inbox", "the demo inbox") if secret.get("mode") == "demo" else inbox_msg
 
-    watch = WatchRow(id=uuid.uuid4().hex[:12], session_id=ctx.session_id or ctx.run_id, run_id=ctx.run_id,
-                     agent_id=node.id, condition=spec.condition, credential=CREDENTIAL, cursor=cursor)
-    with Session(engine, expire_on_commit=False) as s:
-        s.add(watch)
-        s.commit()
-    await store.set_agent(node.id, status="watching")
-    await emit(ctx, "agent_status", node, status="watching")
-    await emit(ctx, "watch_started", node, watch_id=watch.id, condition=spec.condition, mode=secret.get("mode"))
-    await emit(ctx, "speak", node, role="watcher", text="I'm watching your inbox now. I'll tell you when something matches.")
-    inbox = "the demo inbox" if secret.get("mode") == "demo" else "your inbox"
-    return f"A watcher is now checking {inbox} for emails {spec.condition}. Alerts will appear here."
+
+async def resume_setup(a) -> None:
+    """Called by the requests that record a watch_setup decision. If the goal's request is still
+    waiting it does the same work (idempotently); if it already timed out, this finishes the job:
+    the card, the watcher and the goal's answer all update."""
+    d = a.details
+    await _ev(a.run_id, "human_decision", a.agent_id, approval_id=a.id, decision=a.status, note=a.note)
+    parent = d.get("parent_id")
+    if a.status == "rejected":
+        await store.set_agent(a.agent_id, status="failed")
+        await _ev(a.run_id, "agent_failed", a.agent_id, parent, error=f"Rejected by human: {a.note or 'inbox access denied'}")
+        return
+    try:
+        msg = await finish_setup(a)
+    except SetupFailed:
+        return
+    if parent:
+        await store.set_agent(parent, status="done")
+        await _ev(a.run_id, "agent_finished", parent, result=msg, confidence=0.9)
+    await _ev(a.run_id, "run_finished", None, result=msg)
 
 
 # ---------- ticks (each one is a short request) ----------
@@ -172,6 +234,8 @@ async def _check(w: WatchRow) -> None:
                 await _ev(w.run_id, "speak", w.agent_id, role="watcher",
                           text=f"Payment alert: {m.summary}" if "pay" in w.condition else f"Alert: {m.summary}")
                 await _notify(w, mail["subject"] or "Banyan alert", m.summary + (f" ({m.amount})" if m.amount else ""))
+                if w.forward_to:
+                    await _forward(w, mail, m)
                 if m.action in ACTIONS:
                     await _propose(w, aid, m, mail)
             if not hits:
@@ -254,6 +318,31 @@ async def _notify(w: WatchRow, title: str, message: str) -> None:
         await _ev(w.run_id, "notified", w.agent_id, channel="ntfy", ok=r.status_code < 300)
     except Exception as e:
         await _ev(w.run_id, "log", w.agent_id, message=f"Push notification failed: {e}"[:200])
+
+
+async def _forward(w: WatchRow, mail: dict, m) -> None:
+    """Email the alert to the address the user named. The human consented to this standing
+    rule on the setup card, so each send doesn't need its own approval. Scripted/test runs and
+    setups without a Google login never send."""
+    import asyncio
+
+    from .connectors import google
+
+    to = w.forward_to
+    subject = f"Banyan alert: {mail['subject'] or 'matching email'}"
+    body = (f"Your Banyan watcher found an email {w.condition}.\n\nFrom: {mail['from']}\n"
+            f"Subject: {mail['subject']}\nSummary: {m.summary}" + (f"\nAmount: {m.amount}" if m.amount else ""))
+    await _ev(w.run_id, "tool_call", w.agent_id, tool="send_email", args={"to": to, "subject": subject})
+    g = None if settings.use_mock or not google.enabled() else await vault.get("google")
+    if not g:
+        await _ev(w.run_id, "log", w.agent_id, message=f"NOT SENT to {to}: no Gmail connected (sign in with Google to send)")
+        return
+    try:
+        await _ev(w.run_id, "secret_used", w.agent_id, name="google", purpose="forward alert")
+        await asyncio.to_thread(google.send, g, to, subject, body)
+        await _ev(w.run_id, "tool_result", w.agent_id, tool="send_email", summary=f"Alert emailed to {to}")
+    except Exception as e:
+        await _ev(w.run_id, "log", w.agent_id, message=f"Forward to {to} failed: {e}"[:300])
 
 
 def _get(watch_id: str) -> WatchRow | None:

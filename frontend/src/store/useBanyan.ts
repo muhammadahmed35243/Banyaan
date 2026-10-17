@@ -24,6 +24,7 @@ export interface AgentNode {
   confidence: number | null;
   tokensUsed: number;
   result: string | null;
+  dependsOn: string[]; // sibling agents whose results feed this one (e.g. researchers -> analyst)
 }
 
 export interface Approval {
@@ -46,7 +47,9 @@ export interface Alert {
   amount: string | null;
 }
 
-export interface Run { id: string; goal: string; status: "running" | "finished" }
+export interface Run {
+  id: string; goal: string; status: "running" | "finished"; result: string | null; startedAt: number;
+}
 
 export interface Bill {
   id: string; payee: string; amount: string; dueDate: string | null; status: "due" | "paid"; subject: string;
@@ -181,10 +184,13 @@ export const useBanyan = create<BanyanState>((set) => ({
           }];
           break;
         case "run_started":
-          runs[e.run_id] = { id: e.run_id, goal: (p.goal as string) ?? "", status: "running" };
+          runs[e.run_id] = { id: e.run_id, goal: (p.goal as string) ?? "", status: "running", result: null, startedAt: t };
           break;
         case "run_finished":
-          runs[e.run_id] = { ...(runs[e.run_id] ?? { id: e.run_id, goal: "" }), status: "finished" };
+          runs[e.run_id] = {
+            ...(runs[e.run_id] ?? { id: e.run_id, goal: "", startedAt: t }),
+            status: "finished", result: (p.result as string) ?? null,
+          };
           break;
         case "tool_loaded":
           toolsLoaded += 1;
@@ -208,6 +214,7 @@ export const useBanyan = create<BanyanState>((set) => ({
               confidence: null,
               tokensUsed: 0,
               result: null,
+              dependsOn: (p.depends_on as string[]) ?? [],
             };
           break;
         case "agent_status":

@@ -85,11 +85,19 @@ function layout(agents: AgentNode[]): { nodes: Node[]; edges: Edge[] } {
     g.setDefaultEdgeLabel(() => ({}));
     members.forEach((a) => g.setNode(a.id, { width: W, height: H }));
     members.forEach((a) => {
-      if (a.parentId && byId.has(a.parentId)) {
+      const deps = a.dependsOn.filter((d) => byId.has(d));
+      // An agent that waits for siblings sits below them, with "feeds" arrows showing the hand-off.
+      if (a.parentId && byId.has(a.parentId) && deps.length === 0) {
         g.setEdge(a.parentId, a.id);
         edges.push({ id: `${a.parentId}-${a.id}`, source: a.parentId, target: a.id, animated: true,
           style: { stroke: "#475569" } });
       }
+      deps.forEach((d) => {
+        g.setEdge(d, a.id);
+        edges.push({ id: `${d}>${a.id}`, source: d, target: a.id, animated: true, label: "feeds",
+          labelStyle: { fill: "#fbbf24", fontSize: 10 }, labelBgStyle: { fill: "#0f172a" },
+          style: { stroke: "#f59e0b", strokeDasharray: "6 4" } });
+      });
     });
     dagre.layout(g);
     let maxX = 0;
@@ -110,8 +118,12 @@ function Tree() {
   const count = nodes.length;
   // Re-fit when the tree grows; fitView's prop only applies on first render.
   useEffect(() => {
-    const t = setTimeout(() => fitView({ padding: 0.3, duration: 400 }), 50);
-    return () => clearTimeout(t);
+    // Twice: once right away, once after React Flow has measured the new nodes.
+    const fit = () => fitView({ padding: 0.2, duration: 400 });
+    const a = setTimeout(fit, 50);
+    const b = setTimeout(fit, 500);
+    window.addEventListener("resize", fit);
+    return () => { clearTimeout(a); clearTimeout(b); window.removeEventListener("resize", fit); };
   }, [count, fitView]);
   if (count === 0) {
     return (

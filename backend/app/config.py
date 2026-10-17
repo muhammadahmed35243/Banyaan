@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     vault_key: str = ""  # encrypts the secrets vault; set it in production
     watch_interval_sec: int = 15  # minimum gap between two checks of one watcher
     cron_secret: str = ""  # required by /api/watches/tick_all (Vercel cron / GitHub Actions)
+    google_client_id: str = ""  # Google sign-in for Gmail (OAuth web client)
+    google_client_secret: str = ""
+    backend_url: str = "http://localhost:8000"  # public URL of this API (OAuth redirect)
     elevenlabs_api_key: str = ""  # optional: natural agent voices; without it the browser speaks
     elevenlabs_voice_orchestrator: str = ""
     elevenlabs_voice_builder: str = ""

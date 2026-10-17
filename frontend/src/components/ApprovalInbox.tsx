@@ -5,6 +5,7 @@ import { API_URL } from "@/lib/config";
 import { useBanyan, type Approval } from "@/store/useBanyan";
 import NewToolCard from "./NewToolCard";
 import WatchSetupCard from "./WatchSetupCard";
+import ConnectGoogleCard from "./ConnectGoogleCard";
 
 function Card({ a }: { a: Approval }) {
   const [note, setNote] = useState("");
@@ -30,6 +31,18 @@ function Card({ a }: { a: Approval }) {
         {a.kind.replace("_", " ")} · {a.risk} risk
       </div>
       <div className="mt-1 font-medium">{a.title}</div>
+      {a.details.to !== undefined && (
+        <div className="mt-2 space-y-1 rounded bg-slate-950 p-2 text-xs text-slate-300">
+          <div><span className="text-slate-500">To:</span> {String(a.details.to)}</div>
+          <div><span className="text-slate-500">Subject:</span> {String(a.details.subject)}</div>
+          <p className="whitespace-pre-wrap">{String(a.details.body)}</p>
+          {a.details.via !== undefined && (
+            <div className={String(a.details.via).startsWith("Gmail") ? "text-amber-300" : "text-slate-500"}>
+              Sends via {String(a.details.via)}
+            </div>
+          )}
+        </div>
+      )}
       {a.details.result !== undefined && !editing && (
         <p className="mt-2 rounded bg-slate-950 p-2 text-xs text-slate-300">{String(a.details.result)}</p>
       )}
@@ -126,7 +139,7 @@ export default function ApprovalInbox() {
   const approvals = useBanyan((s) => s.approvals);
   const pending = Object.values(approvals).filter((a) => a.status === "pending");
   return (
-    <aside className="w-96 shrink-0 overflow-y-auto border-l border-slate-800 p-3">
+    <aside className={`${pending.length ? "w-96" : "w-64"} shrink-0 overflow-y-auto border-l border-slate-800 p-3 transition-all`}>
       <NotifyToggle />
       <Alerts />
       <Bills />
@@ -138,6 +151,7 @@ export default function ApprovalInbox() {
         {pending.map((a) =>
           a.kind === "new_tool" ? <NewToolCard key={a.id} a={a} />
             : a.kind === "watch_setup" ? <WatchSetupCard key={a.id} a={a} />
+              : a.kind === "connect_google" ? <ConnectGoogleCard key={a.id} a={a} />
               : <Card key={a.id} a={a} />)}
       </div>
     </aside>
