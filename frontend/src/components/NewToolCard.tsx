@@ -96,7 +96,7 @@ export default function NewToolCard({ a }: { a: Approval }) {
         className="mt-2 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs" />
       <div className="mt-2 flex gap-2">
         {!d.blocked && (
-          <button onClick={() => decide("approved")} className="rounded bg-emerald-600 px-2 py-1 text-xs hover:bg-emerald-500">
+          <button onClick={() => decide("approved")} className="rounded bg-af-blue px-2 py-1 text-xs font-medium text-white hover:bg-af-blue-hover">
             Approve tool
           </button>
         )}

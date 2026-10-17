@@ -54,7 +54,7 @@ function Card({ a }: { a: Approval }) {
       <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (required to reject)"
         className="mt-2 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs" />
       <div className="mt-2 flex gap-2">
-        <button onClick={() => decide("approved")} className="rounded bg-emerald-600 px-2 py-1 text-xs hover:bg-emerald-500">Approve</button>
+        <button onClick={() => decide("approved")} className="rounded bg-af-blue px-2 py-1 text-xs font-medium text-white hover:bg-af-blue-hover">Approve</button>
         {a.kind === "low_confidence" && (
           editing ? (
             <button onClick={() => decide("edited", { edited_payload: { result: text } })}

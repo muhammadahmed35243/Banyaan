@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { launchDemo, launchFakeRun, launchGoal } from "@/lib/actions";
 import { useBanyan } from "@/store/useBanyan";
 import DemoGuide from "./DemoGuide";
@@ -19,7 +20,8 @@ export default function GoalInput({ sessionId, onNewSession }: { sessionId: stri
   // The input stays free after submitting, so more goals can run in parallel.
   return (
     <header className="relative flex items-center gap-3 border-b border-slate-800 px-5 py-3">
-      <span className="text-lg font-semibold tracking-tight">🌳 Banyan</span>
+      <Link href="/" className="text-lg font-bold tracking-tight hover:text-af-medium">🌳 Banyan</Link>
+      <Link href="/sessions" className="whitespace-nowrap text-xs text-slate-400 hover:text-af-medium">← Sessions</Link>
       <VoiceOrb sessionId={sessionId} />
       <form
         className="flex flex-1 gap-2"
@@ -34,14 +36,14 @@ export default function GoalInput({ sessionId, onNewSession }: { sessionId: stri
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
           placeholder="Give Banyan a goal… goals run side by side. e.g. Any time I get an email about a payment, tell me"
-          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none focus:border-emerald-500"
+          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none focus:border-af-medium"
         />
-        <button className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium hover:bg-emerald-500">
+        <button className="rounded-lg bg-af-blue px-3 py-1.5 text-sm font-medium text-white hover:bg-af-blue-hover">
           Run
         </button>
       </form>
       <button onClick={() => launchDemo(sessionId)} title="Start a watcher and a parallel price comparison"
-        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium hover:bg-indigo-500">▶ Demo</button>
+        className="rounded-lg bg-af-dark px-3 py-1.5 text-xs font-medium text-white hover:bg-af-blue">▶ Demo</button>
       <button onClick={() => setGuide((g) => !g)} title="Presentation script"
         className="rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:bg-slate-800">📋 Script</button>
       <button onClick={() => launchFakeRun(sessionId)}
@@ -54,7 +56,7 @@ export default function GoalInput({ sessionId, onNewSession }: { sessionId: stri
         <span className="rounded-full bg-purple-600 px-2.5 py-0.5 text-xs font-medium">{pending} need you</span>
       )}
       <span className="whitespace-nowrap text-xs text-slate-400">
-        {running} running{watching > 0 && <span className="text-cyan-300"> · {watching} watching</span>}
+        {running} running{watching > 0 && <span className="text-af-sky"> · {watching} watching</span>}
       </span>
       <button onClick={onNewSession} title="Start a clean session"
         className="whitespace-nowrap rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-400 hover:bg-slate-800">

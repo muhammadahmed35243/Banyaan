@@ -1,23 +1,55 @@
 @import "tailwindcss";
 
+/* Alternate Futures palette, dark mode (product UI): near-black page, #141414 surfaces,
+   Brand Blue for primary actions, Medium Blue for links, Apricot as the warm accent,
+   Terracotta for alerts only. */
 :root {
-  --background: #07090f;
-  --foreground: #e6e8ee;
+  --background: #0a0a0a;
+  --foreground: #f9f5ee;
   color-scheme: dark;
+}
+
+@theme {
+  --color-af-blue: #000aff;
+  --color-af-blue-hover: #0008cc;
+  --color-af-dark: #0000af;
+  --color-af-medium: #a5b2ff;
+  --color-af-medium-hover: #b8c3ff;
+  --color-af-apricot: #ffc7aa;
+  --color-af-sky: #c8e0e4;
+  --color-af-terracotta: #be4200;
+  --color-af-cream: #f9f5ee;
+
+  /* The existing UI is written in Tailwind's slate scale; remap it to the AF neutrals so
+     every panel picks up the brand without touching each class. */
+  --color-slate-50: #fbf9f5;
+  --color-slate-100: #f9f5ee;
+  --color-slate-200: #ebe7df;
+  --color-slate-300: #d2cfd9;
+  --color-slate-400: #a6a6bb;
+  --color-slate-500: #7a7a93;
+  --color-slate-600: #50506b;
+  --color-slate-700: #34344c;
+  --color-slate-800: #1f1f33;
+  --color-slate-900: #141414;
+  --color-slate-950: #0a0a0a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-instrument-sans), system-ui, sans-serif;
+  --font-serif: var(--font-instrument-serif), Georgia, serif;
+  --font-mono: var(--font-jetbrains-mono), monospace;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-instrument-sans), system-ui, sans-serif;
 }
+
+code, pre, kbd { font-family: var(--font-jetbrains-mono), monospace; font-feature-settings: "liga" 1, "calt" 1; }
 
 @keyframes banyan-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.6); }
@@ -27,22 +59,32 @@ body {
 
 /* A watcher stays alive after its goal finishes: a slow "breathing" glow. */
 @keyframes banyan-watch {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.0); }
-  50% { box-shadow: 0 0 18px 2px rgba(34, 211, 238, 0.45); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(200, 224, 228, 0.0); }
+  50% { box-shadow: 0 0 18px 2px rgba(200, 224, 228, 0.45); }
 }
 .pulse-watch { animation: banyan-watch 2.4s ease-in-out infinite; }
 
+/* Four-point stars for the home page hero (decoration only, low opacity). */
+.af-star {
+  position: absolute;
+  background: currentColor;
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+  pointer-events: none;
+}
+
 /* Rendered agent answers */
-.banyan-md h1, .banyan-md h2, .banyan-md h3 { font-weight: 600; color: #f1f5f9; margin: 0.8em 0 0.3em; }
+.banyan-md h1, .banyan-md h2, .banyan-md h3 { font-weight: 600; color: var(--color-af-cream); margin: 0.8em 0 0.3em; }
 .banyan-md h1 { font-size: 1.1rem; } .banyan-md h2 { font-size: 1rem; } .banyan-md h3 { font-size: 0.95rem; }
 .banyan-md p { margin: 0.4em 0; }
 .banyan-md ul { list-style: disc; padding-left: 1.2em; margin: 0.3em 0; }
 .banyan-md ol { list-style: decimal; padding-left: 1.2em; margin: 0.3em 0; }
 .banyan-md li { margin: 0.15em 0; }
-.banyan-md strong { color: #f8fafc; }
+.banyan-md strong { color: var(--color-af-cream); }
+.banyan-md a { color: var(--color-af-medium); }
+.banyan-md a:hover { color: var(--color-af-medium-hover); }
 .banyan-md table { width: 100%; border-collapse: collapse; margin: 0.5em 0; font-size: 0.8rem; }
-.banyan-md th, .banyan-md td { border: 1px solid #334155; padding: 4px 6px; text-align: left; }
-.banyan-md th { background: #1e293b; }
-.banyan-md code { background: #1e293b; padding: 0 4px; border-radius: 4px; }
+.banyan-md th, .banyan-md td { border: 1px solid var(--color-slate-700); padding: 4px 6px; text-align: left; }
+.banyan-md th { background: var(--color-slate-800); }
+.banyan-md code { background: var(--color-slate-800); padding: 0 4px; border-radius: 4px; font-size: 0.85em; }
 
 .react-flow__attribution { display: none; }

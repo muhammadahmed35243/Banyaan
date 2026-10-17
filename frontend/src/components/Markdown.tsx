@@ -11,7 +11,7 @@ export default function Markdown({ text }: { text: string }) {
         remarkPlugins={[remarkGfm]}
         components={{
           a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer noopener" className="text-sky-400 underline hover:text-sky-300">{children}</a>
+            <a href={href} target="_blank" rel="noreferrer noopener" className="text-af-medium underline hover:text-af-medium-hover">{children}</a>
           ),
           img: ({ src, alt }) => (
             // Remote images from any site: next/image would need every domain allow-listed.

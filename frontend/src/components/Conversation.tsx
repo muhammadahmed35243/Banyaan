@@ -47,7 +47,7 @@ export default function Conversation({ sessionId }: { sessionId: string }) {
           const lost = r.status === "running" && secs > 360 && waiting === 0;
           return (
             <div key={r.id} className="space-y-2">
-              <div className="ml-10 rounded-2xl rounded-tr-sm bg-emerald-700/40 px-3 py-2 text-sm text-emerald-50">{r.goal}</div>
+              <div className="ml-10 rounded-2xl rounded-tr-sm bg-af-blue px-3 py-2 text-sm text-white">{r.goal}</div>
               <div className="mr-4 rounded-2xl rounded-tl-sm border border-slate-800 bg-slate-900 px-3 py-2">
                 {r.result ? (
                   <Markdown text={r.result} />
@@ -80,8 +80,8 @@ export default function Conversation({ sessionId }: { sessionId: string }) {
       <form className="flex gap-2 border-t border-slate-800 p-3"
         onSubmit={(e) => { e.preventDefault(); if (text.trim()) { launchGoal(sessionId, text.trim()); setText(""); } }}>
         <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Ask a follow-up…"
-          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none focus:border-emerald-500" />
-        <button className="rounded-lg bg-emerald-600 px-3 text-sm hover:bg-emerald-500">Send</button>
+          className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm outline-none focus:border-af-medium" />
+        <button className="rounded-lg bg-af-blue px-3 text-sm font-medium text-white hover:bg-af-blue-hover">Send</button>
       </form>
     </aside>
   );

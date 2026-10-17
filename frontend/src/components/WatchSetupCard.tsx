@@ -65,7 +65,7 @@ export default function WatchSetupCard({ a }: { a: Approval }) {
         {google.enabled && (
           google.connected ? (
             <button disabled={busy} onClick={() => credential({ mode: "google" })}
-              className={`${btn} bg-emerald-600 hover:bg-emerald-500`}>Use Gmail ({google.connected})</button>
+              className={`${btn} bg-af-blue text-white hover:bg-af-blue-hover`}>Use Gmail ({google.connected})</button>
           ) : (
             <button disabled={busy} onClick={signIn}
               className={`${btn} flex items-center justify-center gap-2 bg-white font-medium text-slate-900 hover:bg-slate-200`}>
